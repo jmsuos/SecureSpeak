@@ -8,6 +8,8 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"net/http"
+	"net/url"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -19,10 +21,52 @@ import (
 	"securespeak/internal/ui"
 )
 
+// version is set at build time: -ldflags "-X main.version=3.0.1"
+var version = "dev"
+
+type instanceInfo struct {
+	URL string `json:"url"`
+	PID int    `json:"pid"`
+}
+
+// runningInstance returns the UI address of an already running SecureSpeak
+// using the same data directory, or "".
+func runningInstance(path string) string {
+	b, err := os.ReadFile(path)
+	if err != nil {
+		return ""
+	}
+	var inst instanceInfo
+	if json.Unmarshal(b, &inst) != nil {
+		return ""
+	}
+	u, err := url.Parse(inst.URL)
+	if err != nil || u.Hostname() != "127.0.0.1" {
+		return ""
+	}
+	cl := &http.Client{Timeout: 1500 * time.Millisecond}
+	resp, err := cl.Get("http://" + u.Host + "/ping?token=" + url.QueryEscape(u.Query().Get("token")))
+	if err != nil {
+		return ""
+	}
+	defer resp.Body.Close()
+	body, _ := io.ReadAll(io.LimitReader(resp.Body, 64))
+	if resp.StatusCode != 200 || string(body) != "securespeak" {
+		return ""
+	}
+	return inst.URL
+}
+
 func main() {
 	dataDirFlag := flag.String("data", "", "data directory (default: %APPDATA%\\SecureSpeak or ~/.config/SecureSpeak)")
 	noWindow := flag.Bool("no-window", false, "do not open the app window; print the URL instead")
+	showVersion := flag.Bool("version", false, "print the version and exit")
 	flag.Parse()
+	if *showVersion {
+		fmt.Println("SecureSpeak", version)
+		return
+	}
+	client.AppVersion = version
 
 	dataDir := *dataDirFlag
 	if dataDir == "" {
@@ -38,6 +82,19 @@ func main() {
 	store, err := client.NewStore(dataDir)
 	if err != nil {
 		fatal(err)
+	}
+	profileDir := filepath.Join(dataDir, "ui-profile")
+
+	// Single instance: if SecureSpeak is already running with this data
+	// folder, just bring up its window (e.g. clicking the Start menu entry again).
+	instPath := filepath.Join(dataDir, "instance.json")
+	if u := runningInstance(instPath); u != "" {
+		if *noWindow {
+			fmt.Println("SecureSpeak is already running:", u)
+		} else if _, err := platform.OpenWindow(u, profileDir); err != nil {
+			log.Printf("window: %v", err)
+		}
+		return
 	}
 	if f, err := os.OpenFile(filepath.Join(dataDir, "client.log"), os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0600); err == nil {
 		log.SetOutput(io.MultiWriter(f, os.Stderr))
@@ -65,15 +122,23 @@ func main() {
 	bridge.Upload = core.OfferFile
 	bridge.Avatar = core.Avatar
 	bridge.AvatarCT = client.ImageMime
-	url, err := bridge.Listen()
+	uiURL, err := bridge.Listen()
 	if err != nil {
 		fatal(err)
+	}
+	if b, err := json.Marshal(instanceInfo{URL: uiURL, PID: os.Getpid()}); err == nil {
+		os.WriteFile(instPath, b, 0600)
+		defer func() {
+			if cur, err := os.ReadFile(instPath); err == nil && string(cur) == string(b) {
+				os.Remove(instPath)
+			}
+		}()
 	}
 
 	var windowClosed <-chan struct{}
 	started := time.Now()
 	if !*noWindow {
-		windowClosed, err = platform.OpenWindow(url, filepath.Join(dataDir, "ui-profile"))
+		windowClosed, err = platform.OpenWindow(uiURL, profileDir)
 		if err != nil {
 			log.Printf("window: %v", err)
 		}
@@ -91,9 +156,9 @@ func main() {
 		}
 	}
 	if windowClosed == nil {
-		fmt.Println("SecureSpeak UI:", url)
+		fmt.Println("SecureSpeak UI:", uiURL)
 	}
-	log.Printf("SecureSpeak client started, identity %s", core.Fingerprint())
+	log.Printf("SecureSpeak %s started, identity %s", version, core.Fingerprint())
 
 	// Without our own window (default-browser fallback) we exit once the
 	// browser tab has been closed for a while.

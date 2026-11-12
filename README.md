@@ -6,7 +6,7 @@ and can never hear, read or fake anything.
 
 | Component | Platforms | Files |
 |---|---|---|
-| Client | Windows 10/11 | `windows/SecureSpeak.exe` (single file) |
+| Client | Windows 10/11 | `SecureSpeak-Setup-<version>.exe` installer (or the portable exe) |
 | Client | Ubuntu, Linux Mint, Debian (amd64/arm64) | `linux-client/securespeak_3.0.0_amd64.deb`, or the portable binary + `install-client.sh` |
 | Server | Linux (amd64/arm64) | `linux-server/securespeak-server` + `install-server.sh` |
 
@@ -53,10 +53,21 @@ it with `sudo -u securespeak securespeak-server -data /var/lib/securespeak
 
 ### Windows client
 
-Run `SecureSpeak.exe`. It opens in its own window using Edge, which ships with
-Windows. Allow microphone access the first time. Settings and your identity key
-(DPAPI-encrypted) are stored in `%APPDATA%\SecureSpeak`. The exe isn't
-code-signed, so SmartScreen may warn: choose *More info → Run anyway*.
+Download **`SecureSpeak-Setup-<version>.exe`** from the
+[Releases](https://github.com/jmsuos/SecureSpeak/releases) page and run it.
+- **Where it installs:** in your user profile (`%LOCALAPPDATA%\Programs\SecureSpeak`), with no administrator rights needed. Choose "Install for all users" in the first dialog to use Program Files instead.
+- **What it adds:** a Start menu entry and an entry in *Settings → Apps*. A desktop icon and starting SecureSpeak when you sign in are optional.
+- **Updating:** run the newer setup. It closes SecureSpeak and keeps all settings.
+- **Uninstalling:** this asks whether to also delete your settings and identity key. Keep them if you want to keep your identity and server roles.
+- **Portable version:** `SecureSpeak-<version>-portable.exe` runs without installing.
+
+The app opens in its own window using Edge, which ships with Windows. Allow
+microphone access the first time. Settings and your identity key (encrypted
+with your Windows login) are stored in `%APPDATA%\SecureSpeak`. Starting it
+again while it's running just reopens the window.
+
+Releases aren't code-signed yet, so Windows SmartScreen shows "Windows protected
+your PC" the first time: choose *More info → Run anyway*.
 
 ### Linux client (Ubuntu / Mint)
 
@@ -165,8 +176,17 @@ old versions, the client falls back to 24 kHz ADPCM automatically.
 Go 1.24+ only. No cgo and no third-party modules.
 
 ```sh
-./build.sh            # everything into dist/ (.deb needs dpkg-deb)
+./build.sh            # all targets into dist/ (.deb needs dpkg-deb)
+./build.sh linux      # only Linux client, server and .deb packages
 go test -race ./...   # crypto, protocol and full client↔server tests
+```
+
+**Releases are built by GitHub Actions** (`.github/workflows/build.yml`).
+- **Every push:** runs the tests and builds everything, including the Windows installer with Inno Setup on a Windows runner. The installer is smoke-tested by a silent install, launching the app, a single-instance check and an uninstall.
+- **Publishing a release:** push a version tag:
+
+```sh
+echo 3.0.1 > VERSION && git commit -am "Release 3.0.1" && git tag v3.0.1 && git push --follow-tags
 ```
 
 ```
@@ -178,6 +198,7 @@ internal/server          server (roles.go: roles, permissions, privilege keys, o
 internal/client          client core: sessions, keys, whisper, files, avatars
 internal/hotkey          global hotkeys (Windows GetAsyncKeyState; Linux evdev / X11)
 internal/platform        OS integration (DPAPI, app window, folders, links)
+installer/               Windows installer (Inno Setup script, icon)
 internal/ui              local bridge (HTTP, SSE, WebSocket) + web UI, audio engine, worklets
 ```
 

@@ -1,0 +1,214 @@
+name: Build
+
+# Every push/PR: tests + all builds (downloadable as workflow artifacts).
+# Pushing a tag like v3.0.1: additionally publishes a GitHub Release.
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+env:
+  CGO_ENABLED: '0'
+
+jobs:
+  version:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.v.outputs.version }}
+      numeric: ${{ steps.v.outputs.numeric }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: v
+        run: |
+          base=$(tr -d ' \n' < VERSION)
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
+            version="${GITHUB_REF_NAME#v}"
+          else
+            version="${base}-dev.${GITHUB_RUN_NUMBER}"
+          fi
+          core="${version%%[-+]*}"
+          numeric="${core}.${GITHUB_RUN_NUMBER}"
+          [[ "$GITHUB_REF" == refs/tags/v* ]] && numeric="${core}.0"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "numeric=$numeric" >> "$GITHUB_OUTPUT"
+          echo "::notice title=Version::$version ($numeric)"
+
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: Vet
+        run: |
+          go vet ./...
+          GOOS=windows go vet ./...
+      - name: Test
+        env:
+          CGO_ENABLED: '1'
+        run: go test -race -count=1 ./...
+
+  linux:
+    needs: [version, test]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: Build Linux client, server and .deb packages
+        env:
+          VERSION: ${{ needs.version.outputs.version }}
+        run: ./build.sh linux
+      - uses: actions/upload-artifact@v4
+        with:
+          name: linux
+          path: |
+            dist/linux-client/*.deb
+            dist/linux-client/securespeak
+            dist/linux-client/securespeak-arm64
+            dist/linux-client/install-client.sh
+            dist/linux-client/securespeak.desktop
+            dist/linux-client/securespeak.svg
+            dist/linux-server/*
+          if-no-files-found: error
+
+  windows:
+    needs: [version, test]
+    runs-on: windows-latest
+    env:
+      VERSION: ${{ needs.version.outputs.version }}
+      VERSION_NUM: ${{ needs.version.outputs.numeric }}
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Embed icon, version info and manifest
+        run: |
+          go install github.com/tc-hib/go-winres@latest
+          Push-Location cmd/securespeak
+          & "$(go env GOPATH)\bin\go-winres.exe" simply `
+            --arch amd64 `
+            --icon ..\..\installer\securespeak.png `
+            --manifest gui `
+            --product-name SecureSpeak `
+            --file-description "SecureSpeak - encrypted voice chat" `
+            --original-filename SecureSpeak.exe `
+            --copyright "SecureSpeak contributors" `
+            --product-version $env:VERSION_NUM `
+            --file-version $env:VERSION_NUM
+          if ($LASTEXITCODE -ne 0) { throw "go-winres failed" }
+          Get-ChildItem *.syso
+          Pop-Location
+
+      - name: Build SecureSpeak.exe
+        run: |
+          go build -trimpath -ldflags "-s -w -H windowsgui -X main.version=$env:VERSION" -o dist\windows\SecureSpeak.exe .\cmd\securespeak
+          if ($LASTEXITCODE -ne 0) { throw "build failed" }
+
+      - name: Check embedded resources
+        run: |
+          $vi = (Get-Item dist\windows\SecureSpeak.exe).VersionInfo
+          if (-not $vi.ProductName) { throw "no version info embedded" }
+          Add-Type -AssemblyName System.Drawing
+          $ico = [System.Drawing.Icon]::ExtractAssociatedIcon((Resolve-Path dist\windows\SecureSpeak.exe))
+          Write-Host "::notice title=SecureSpeak.exe::$($vi.ProductName) $($vi.FileVersion), icon $($ico.Width)x$($ico.Height)"
+          & dist\windows\SecureSpeak.exe -version | Out-Host
+
+      - name: Install Inno Setup
+        run: |
+          $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
+          choco upgrade innosetup -y --no-progress | Out-Null
+          if (-not (Test-Path $iscc)) { throw "Inno Setup not found" }
+          & $iscc /? | Select-Object -First 1 | Out-Host
+
+      - name: Build installer
+        run: |
+          & "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" /Q "/DAppVersion=$env:VERSION" "/DAppVersionNum=$env:VERSION_NUM" installer\securespeak.iss
+          if ($LASTEXITCODE -ne 0) { throw "ISCC failed" }
+          Get-ChildItem dist\installer | Out-Host
+
+      - name: Smoke-test installer (install, run, single instance, uninstall)
+        run: |
+          $setup = (Get-ChildItem dist\installer\SecureSpeak-Setup-*.exe | Select-Object -First 1).FullName
+          $p = Start-Process $setup -ArgumentList '/VERYSILENT','/SUPPRESSMSGBOXES','/CURRENTUSER','/NORESTART','/LOG=install.log' -Wait -PassThru
+          if ($p.ExitCode -ne 0) { Get-Content install.log; throw "setup exit code $($p.ExitCode)" }
+
+          $dir = "$env:LOCALAPPDATA\Programs\SecureSpeak"
+          $exe = "$dir\SecureSpeak.exe"
+          if (-not (Test-Path $exe)) { Get-Content install.log; throw "SecureSpeak.exe not installed" }
+          $lnk = "$env:APPDATA\Microsoft\Windows\Start Menu\Programs\SecureSpeak.lnk"
+          if (-not (Test-Path $lnk)) { throw "Start menu shortcut missing" }
+          $un = Get-ChildItem HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall | Where-Object { $_.PSChildName -like '*6B0C5E2A*' }
+          if (-not $un) { throw "uninstall entry missing" }
+          $disp = (Get-ItemProperty $un.PSPath).DisplayVersion
+          Write-Host "Installed version in Apps & features: $disp"
+
+          # run the installed app headless and talk to its local UI server
+          $data = Join-Path $env:RUNNER_TEMP 'ssdata'
+          $app = Start-Process $exe -ArgumentList '-no-window','-data',$data -PassThru
+          $ok = $false
+          for ($i = 0; $i -lt 30 -and -not $ok; $i++) {
+            Start-Sleep -Milliseconds 500
+            try { $r = Invoke-WebRequest http://127.0.0.1:47713/ -UseBasicParsing -TimeoutSec 2; $ok = $r.Content -match 'SecureSpeak' } catch {}
+          }
+          if (-not $ok) { Get-Content "$data\client.log" -ErrorAction SilentlyContinue; throw "installed app did not serve its UI" }
+
+          # second launch must hand over to the running instance and exit
+          $second = Start-Process $exe -ArgumentList '-no-window','-data',$data -PassThru
+          if (-not $second.WaitForExit(10000)) { $second.Kill(); throw "second instance did not exit" }
+          if (-not (Get-Process -Id $app.Id -ErrorAction SilentlyContinue)) { throw "first instance died" }
+          Write-Host "single instance OK"
+
+          # silent uninstall (also stops the running app)
+          $p = Start-Process "$dir\unins000.exe" -ArgumentList '/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART' -Wait -PassThru
+          Start-Sleep 3
+          if (Test-Path $exe) { throw "uninstall left SecureSpeak.exe behind" }
+          if (Test-Path $lnk) { throw "uninstall left the shortcut behind" }
+          if (Get-Process -Id $app.Id -ErrorAction SilentlyContinue) { throw "app still running after uninstall" }
+          Write-Host "::notice title=Installer smoke test::install, launch, single-instance and uninstall all passed"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows
+          path: |
+            dist/installer/SecureSpeak-Setup-*.exe
+            dist/windows/SecureSpeak.exe
+          if-no-files-found: error
+
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [version, linux, windows]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+      - name: Collect release files
+        run: |
+          mkdir release
+          cp artifacts/windows/installer/SecureSpeak-Setup-*.exe release/
+          cp artifacts/windows/windows/SecureSpeak.exe "release/SecureSpeak-${{ needs.version.outputs.version }}-portable.exe"
+          cp artifacts/linux/linux-client/*.deb release/
+          (cd artifacts/linux/linux-client && tar czf "../../../release/securespeak-client-${{ needs.version.outputs.version }}-linux.tar.gz" \
+            securespeak securespeak-arm64 install-client.sh securespeak.desktop securespeak.svg)
+          (cd artifacts/linux/linux-server && tar czf "../../../release/securespeak-server-${{ needs.version.outputs.version }}-linux.tar.gz" .)
+          (cd release && sha256sum * > SHA256SUMS)
+          ls -l release
+      - name: Publish GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" release/* --title "SecureSpeak ${{ needs.version.outputs.version }}" --generate-notes
