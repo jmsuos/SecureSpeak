@@ -24,6 +24,7 @@ AppName=SecureSpeak
 AppVersion={#AppVersion}
 AppVerName=SecureSpeak {#AppVersion}
 AppPublisher=SecureSpeak
+AppCopyright=Copyright (C) 2026 jmsuos and SecureSpeak contributors. GPL-3.0
 AppPublisherURL=https://github.com/jmsuos/SecureSpeak
 AppSupportURL=https://github.com/jmsuos/SecureSpeak/issues
 AppUpdatesURL=https://github.com/jmsuos/SecureSpeak/releases
@@ -71,6 +72,7 @@ Name: "startup"; Description: "{cm:StartupTask}"; GroupDescription: "{cm:OtherTa
 [Files]
 Source: "{#SourceDir}\SecureSpeak.exe"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\README.md"; DestDir: "{app}"; Flags: ignoreversion
+Source: "..\LICENSE"; DestDir: "{app}"; DestName: "LICENSE.txt"; Flags: ignoreversion
 
 [Icons]
 Name: "{autoprograms}\SecureSpeak"; Filename: "{app}\SecureSpeak.exe"; Comment: "End-to-end encrypted voice chat"
