@@ -594,7 +594,15 @@ func (c *Client) finishRecvLocked(s *session, rx *recvXfer) {
 	f := rx.f
 	rx.f = nil
 	id, from := rx.offer.ID, rx.offer.from
+	if c.closing { // shutting down: drop the unfinished download
+		f.Close()
+		os.Remove(rx.part)
+		rx.state = "failed"
+		return
+	}
+	c.bg.Add(1)
 	go func() {
+		defer c.bg.Done()
 		h := sha256.New()
 		f.Seek(0, io.SeekStart)
 		_, err := io.Copy(h, f)

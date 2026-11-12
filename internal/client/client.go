@@ -240,6 +240,8 @@ type Client struct {
 
 	closed    chan struct{}
 	closeOnce sync.Once
+	closing   bool           // set under mu by Close; no new background writes after this
+	bg        sync.WaitGroup // background disk writes (settings, download verification)
 }
 
 func New(store *Store, em Emitter) (*Client, error) {
@@ -267,9 +269,30 @@ func New(store *Store, em Emitter) (*Client, error) {
 // Frame format: [1][sender u32][flags][codec][seq u32][payload].
 func (c *Client) SetVoiceSink(f func([]byte)) { c.voiceOut.Store(&f) }
 
+// Close disconnects and waits until pending background writes (settings,
+// downloads being verified) have finished, so nothing touches the data
+// folder afterwards.
 func (c *Client) Close() {
 	c.closeOnce.Do(func() { close(c.closed) })
 	c.Disconnect()
+	c.mu.Lock()
+	c.closing = true
+	c.mu.Unlock()
+	c.bg.Wait()
+}
+
+// goBackground runs f in the background unless the client is closing, in
+// which case it runs f right away. Must be called with c.mu held.
+func (c *Client) goBackground(f func()) {
+	if c.closing {
+		f()
+		return
+	}
+	c.bg.Add(1)
+	go func() {
+		defer c.bg.Done()
+		f()
+	}()
 }
 
 func (c *Client) Fingerprint() string { return e2e.Fingerprint(c.id.Pub) }
@@ -279,11 +302,11 @@ func (c *Client) saveLocked() {
 	if err != nil {
 		return
 	}
-	go func() {
+	c.goBackground(func() {
 		if err := c.store.WriteConfig(b); err != nil {
 			log.Printf("save config: %v", err)
 		}
-	}()
+	})
 }
 
 func (c *Client) system(text string) {
