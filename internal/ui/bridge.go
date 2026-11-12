@@ -378,3 +378,9 @@ func (b *Bridge) media(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "private, max-age=3600")
 	http.ServeContent(w, r, "", st.ModTime(), f) // range requests: video seeking
 }
+
+// Icon returns the app icon (256×256 PNG).
+func Icon() []byte {
+	b, _ := webFS.ReadFile("web/icon.png")
+	return b
+}

@@ -146,3 +146,6 @@ func OpenPath(dir string) error { return exec.Command("explorer", dir).Start() }
 
 // Reveal shows a file selected in Explorer (never executes it).
 func Reveal(path string) error { return exec.Command("explorer", "/select,", path).Start() }
+
+// RefreshUserIcon is only needed on Linux.
+func RefreshUserIcon(png []byte) {}

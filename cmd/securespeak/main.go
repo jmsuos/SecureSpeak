@@ -114,6 +114,7 @@ func main() {
 	if err != nil {
 		fatal(err)
 	}
+	go platform.RefreshUserIcon(ui.Icon())
 	upd := update.New(version, filepath.Join(dataDir, "update"))
 	upd.Cleanup()
 	updates := update.NewManager(upd, func(s update.State) { bridge.Emit("update", s) }, core.AutoUpdate)

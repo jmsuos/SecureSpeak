@@ -322,7 +322,7 @@ function renderTree() {
   tree.replaceChildren();
   if (!S.connected) {
     tree.append(el('div', { class: 'empty' },
-      el('div', { class: 'big' }, icon('server')),
+      el('img', { class: 'brand-art', src: 'brand.webp', alt: 'SecureSpeak', draggable: 'false' }),
       el('div', { text: S.connecting ? 'Connecting…' : 'Not connected to a server' }),
       !S.connecting && el('div', { style: 'margin-top:14px' }, el('button', { class: 'btn primary', onclick: openConnect }, icon('plug'), 'Connect'))));
     return;
@@ -1278,7 +1278,8 @@ function onClosing(d) {
   closingShown = true;
   document.body.append(el('div', { class: 'closing' },
     el('div', { class: 'closing-box' },
-      d.restart ? el('div', { class: 'spinner big' }) : icon('power'),
+      el('img', { class: 'closing-icon', src: 'icon.png', alt: '' }),
+      d.restart && el('div', { class: 'spinner big' }),
       el('div', { class: 'closing-title', text: d.restart ? 'Updating SecureSpeak…' : 'SecureSpeak has been closed' }),
       el('div', { class: 'hint', text: d.restart ? 'SecureSpeak will open again in a moment.' : 'You can close this window.' }))));
   setTimeout(() => window.close(), d.restart ? 400 : 150);
@@ -1345,7 +1346,9 @@ function renderAboutTab(view) {
   const notes = u.status === 'available' && u.notes ? plainNotes(u.notes) : '';
   add(view,
     el('div', { class: 'about-card' },
-      el('div', { class: 'about-head' }, el('span', { class: 'logo big' }, icon('lock')), el('div', {}, el('div', { class: 'about-name', text: 'SecureSpeak' }), el('div', { class: 'hint', text: 'End-to-end encrypted voice chat' }))),
+      el('div', { class: 'about-head' },
+        el('img', { class: 'about-art', src: 'brand.webp', alt: 'SecureSpeak', draggable: 'false' }),
+        el('div', { class: 'about-tagline', text: 'End-to-end encrypted voice chat' })),
       el('div', { class: 'about-status ' + tone },
         el('div', { class: 'about-ic' }, ic),
         el('div', { class: 'about-text' },
@@ -1411,7 +1414,6 @@ document.addEventListener('keydown', (e) => {
   rz.addEventListener('pointerup', () => { start = null; });
 })();
 
-document.querySelector('.logo').append(icon('lock'));
 renderTabs();
 renderMessages();
 startEvents();

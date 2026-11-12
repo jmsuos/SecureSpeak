@@ -12,6 +12,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"time"
 )
 
 // On Linux the identity key is stored as a 0600 file in ~/.config/SecureSpeak,
@@ -175,4 +176,31 @@ func Reveal(path string) error {
 		}
 	}
 	return OpenPath(filepath.Dir(path))
+}
+
+// RefreshUserIcon keeps the menu icon of a per-user install (install-client.sh)
+// current after an in-app update, which only replaces the binary.
+func RefreshUserIcon(png []byte) {
+	home, err := os.UserHomeDir()
+	if err != nil || len(png) == 0 {
+		return
+	}
+	share := filepath.Join(home, ".local", "share")
+	if _, err := os.Stat(filepath.Join(share, "applications", "securespeak.desktop")); err != nil {
+		return // not a per-user install
+	}
+	icons := filepath.Join(share, "icons", "hicolor")
+	changed := os.Remove(filepath.Join(icons, "scalable", "apps", "securespeak.svg")) == nil
+	dst := filepath.Join(icons, "256x256", "apps", "securespeak.png")
+	if _, err := os.Stat(filepath.Join(icons, "512x512", "apps", "securespeak.png")); err != nil {
+		if cur, err := os.ReadFile(dst); err != nil || string(cur) != string(png) {
+			if os.MkdirAll(filepath.Dir(dst), 0755) == nil && os.WriteFile(dst, png, 0644) == nil {
+				changed = true
+			}
+		}
+	}
+	if changed {
+		now := time.Now()
+		os.Chtimes(icons, now, now) // tells the desktop the icon theme changed
+	}
 }
