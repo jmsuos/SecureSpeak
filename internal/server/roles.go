@@ -63,7 +63,7 @@ const (
 
 func defaultRoles(allowTemp bool) []*Role {
 	guest := []string{
-		proto.PermVoiceSpeak, proto.PermVoiceWhisper, proto.PermChatChannel, proto.PermChatServer,
+		proto.PermVoiceSpeak, proto.PermVoiceWhisper, proto.PermScreenShare, proto.PermChatChannel, proto.PermChatServer,
 		proto.PermChatPrivate, proto.PermPoke, proto.PermFiles,
 	}
 	if allowTemp {
@@ -122,6 +122,7 @@ func (s *Server) loadRoles() {
 		s.roles = append(s.roles, r)
 		s.saveRolesLocked()
 	}
+	s.migrateRolesLocked()
 	var members []*Member
 	load("members.json", &members)
 	s.members = map[string]*Member{}
@@ -129,6 +130,33 @@ func (s *Server) loadRoles() {
 		s.members[m.Key] = m
 	}
 	load("privilege_keys.json", &s.keys)
+}
+
+// migrateRolesLocked gives existing roles the permissions added in later
+// versions, mirroring what they could already do. Runs once per schema bump.
+func (s *Server) migrateRolesLocked() {
+	const current = 2
+	if s.cfg.RolesSchema >= current {
+		return
+	}
+	for _, r := range s.roles {
+		has := map[string]bool{}
+		for _, p := range r.Perms {
+			has[p] = true
+		}
+		if has[proto.PermServerEdit] { // 3.1: server password
+			has[proto.PermServerPassword] = true
+		}
+		if has[proto.PermVoiceSpeak] { // 3.1: screen share
+			has[proto.PermScreenShare] = true
+		}
+		r.Perms = proto.SortedPerms(has)
+	}
+	s.cfg.RolesSchema = current
+	s.saveRolesLocked()
+	if err := SaveJSON(s.cfgPath, s.cfg); err != nil {
+		s.Logf("save config: %v", err)
+	}
 }
 
 func (s *Server) saveRolesLocked() {

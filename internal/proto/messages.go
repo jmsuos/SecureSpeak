@@ -28,8 +28,11 @@ const (
 	TRoleDelete  = "role_delete"
 	TClientRoles = "client_roles" // set the roles of a user (online id or identity key)
 	TMemberList  = "member_list"
-	TFileCtl     = "file_ctl"  // both directions: E2E-encrypted transfer control
-	TFileData    = "file_data" // both directions: E2E-encrypted file chunk
+	TServerPw    = "server_password" // set or remove the server password
+	TWatch       = "watch"           // start/stop watching a screen share
+	TKeyframeReq = "keyframe_req"    // ask a sharer for a video keyframe
+	TFileCtl     = "file_ctl"        // both directions: E2E-encrypted transfer control
+	TFileData    = "file_data"       // both directions: E2E-encrypted file chunk
 
 	// server -> client
 	TWelcome      = "welcome"
@@ -79,6 +82,7 @@ type ClientInfo struct {
 	ServerMuted bool     `json:"smuted,omitempty"`
 	Away        bool     `json:"away,omitempty"`
 	AwayMsg     string   `json:"awaymsg,omitempty"`
+	Sharing     bool     `json:"sharing,omitempty"`
 }
 
 type Hello struct {
@@ -104,6 +108,7 @@ type Welcome struct {
 	Clients    []ClientInfo  `json:"clients"`
 	MaxClients int           `json:"max"`
 	Whisper    bool          `json:"whisper"`
+	HasPw      bool          `json:"haspw,omitempty"`
 	Roles      []RoleInfo    `json:"roles"`
 }
 
@@ -167,6 +172,7 @@ type Status struct {
 	Deaf    bool   `json:"deaf"`
 	Away    bool   `json:"away"`
 	AwayMsg string `json:"awaymsg,omitempty"`
+	Sharing bool   `json:"sharing,omitempty"`
 }
 
 type Kick struct {
@@ -211,6 +217,26 @@ type ServerMute struct {
 type ServerEdit struct {
 	Name       string `json:"name"`
 	WelcomeMsg string `json:"welcome"`
+	HasPw      bool   `json:"haspw,omitempty"`
+}
+
+// ServerPassword sets (Password) or removes (Remove) the connect password.
+type ServerPassword struct {
+	Password string `json:"pw,omitempty"`
+	Remove   bool   `json:"remove,omitempty"`
+}
+
+// Watch subscribes to (On) or leaves a user's screen share.
+type Watch struct {
+	ID uint32 `json:"id"`
+	On bool   `json:"on"`
+}
+
+// KeyframeReq: client -> server names the sharer (To); server -> sharer
+// names the viewer (From).
+type KeyframeReq struct {
+	To   uint32 `json:"to,omitempty"`
+	From uint32 `json:"from,omitempty"`
 }
 
 type ClientLeave struct {

@@ -46,6 +46,8 @@ const P = {
   folder: '<path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>',
   whisper: '<path d="M3 12h4l3-8 4 16 3-8h4"/>',
   image: '<rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="M21 15l-5-5L5 21"/>',
+  monitor: '<rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/>',
+  expand: '<path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7"/>',
   globe: '<circle cx="12" cy="12" r="10"/><path d="M2 12h20M12 2a15 15 0 0 1 0 20 15 15 0 0 1 0-20z"/>',
 };
 function icon(name) {
@@ -127,7 +129,7 @@ const canEdit = (ch) => S && (can('channel.edit') || (!ch.perm && ch.owner === S
 const canDelete = (ch) => S && (can('channel.delete') || (!ch.perm && ch.owner === S.myID));
 const roleById = (id) => S && (S.roles || []).find((r) => r.id === id);
 const safeColor = (c) => (/^#[0-9a-f]{6}$/i.test(c || '') ? c : '');
-const staffPerms = ['roles.manage', 'roles.assign', 'tokens.create', 'ban.list', 'server.edit'];
+const staffPerms = ['roles.manage', 'roles.assign', 'tokens.create', 'ban.list', 'server.edit', 'server.password'];
 function roleBadges(u, max = 2) {
   const out = [];
   if (u.owner) out.push(el('span', { class: 'badge owner', text: 'OWNER', title: 'Server owner' }));
@@ -161,6 +163,7 @@ function handle({ t, d }) {
     case 'sound': AE.sound(d); break;
     case 'file': onFileEvent(d); break;
     case 'token': showNewToken(d); break;
+    case 'keyframe': SS.requestKeyframe(); break;
     case 'tokens': if (roleMgr) roleMgr.tokens(d.tokens || []); break;
     case 'members': if (roleMgr) roleMgr.members(d || []); break;
     case 'chat': addChat(d); break;
@@ -200,6 +203,17 @@ function onState(d) {
   AE.apply(S);
   if (settingsView) settingsView.refresh();
   if (roleMgr) roleMgr.refresh();
+  // screen share bookkeeping
+  if (!S.connected && SS.sharing) SS.stop();
+  if (SS.watching) {
+    const w = userById(SS.watching);
+    if (!S.connected || !w || !w.sharing || w.channel !== S.myChannel) {
+      if (w && S.connected) toast(w.nick + ' stopped sharing');
+      SS.unwatch(true);
+    }
+  }
+  renderShareButton();
+  renderStage();
   if (!prev && !S.connected && !S.connecting) openConnect();
 }
 
@@ -271,6 +285,14 @@ function updateTalking() {
   $('btn-ptt').classList.toggle('down', S && talking.has(S.myID));
   const w = [...whispering].map((id) => userById(id)).filter(Boolean).map((u) => u.nick);
   $('st-whisper').textContent = w.length ? w.join(', ') + (w.length > 1 ? ' are' : ' is') + ' whispering to you' : '';
+}
+
+function liveBadge(u) {
+  const watchable = !u.me && u.channel === S.myChannel;
+  const b = el('span', { class: 'badge live' + (watchable ? ' click' : ''), text: SS.watching === u.id ? 'WATCHING' : 'LIVE',
+    title: u.me ? 'You are sharing your screen' : watchable ? 'Watch ' + u.nick + '’s screen' : 'Join their channel to watch' });
+  if (watchable) b.onclick = (e) => { e.stopPropagation(); watchUser(u); };
+  return b;
 }
 
 function avatarNode(u, size) {
@@ -362,6 +384,7 @@ function userNode(u, depth) {
     avatarNode(u),
     el('span', { class: 'name', text: u.nick }),
     (u.muted || u.serverMuted || u.deaf) && u.avatar && el('span', { class: 'st-icons' }, icon(u.deaf ? 'headOff' : 'micOff')),
+    u.sharing && liveBadge(u),
     u.away && el('span', { class: 'sub', text: u.awayMsg ? '(away: ' + u.awayMsg + ')' : '(away)' }),
     el('span', { class: 'tail' },
       u.serverMuted && el('span', { class: 'badge bad', text: 'SERVER-MUTED' }),
@@ -417,11 +440,12 @@ function renderServerInfo(box) {
   add(box, 
     el('div', { class: 'info-title' }, icon('server'), S.serverName),
     S.welcomeMsg && el('div', { class: 'info-sub', text: S.welcomeMsg }),
-    kv([['Address', S.addr], ['Users', S.clients.length + (S.maxClients ? ' / ' + S.maxClients : '')], ['Transport', stats.transport || '…'], ['Encryption', 'TLS 1.3 + end-to-end AES-256-GCM']]),
+    kv([['Address', S.addr], ['Users', S.clients.length + (S.maxClients ? ' / ' + S.maxClients : '')], ['Transport', stats.transport || '…'], ['Password', S.serverHasPw ? 'Required to connect' : 'None'], ['Encryption', 'TLS 1.3 + end-to-end AES-256-GCM']]),
     el('div', { class: 'k', style: 'color:var(--faint);font-size:12px', text: 'Server certificate (SHA-256)' }),
     el('div', { class: 'fp', style: 'font-size:11px', text: S.certFP }),
     el('div', { class: 'actions' },
       can('server.edit') && el('button', { class: 'btn', onclick: openServerEdit }, icon('edit'), 'Edit server'),
+      can('server.password') && el('button', { class: 'btn', onclick: openServerPassword }, icon('lock'), 'Server password'),
       (can('roles.manage') || can('roles.assign') || can('tokens.create')) && el('button', { class: 'btn', onclick: () => openRoleManager() }, icon('shield'), 'Roles & permissions'),
       can('ban.list') && el('button', { class: 'btn', onclick: openBans }, icon('list'), 'Ban list'),
       el('button', { class: 'btn', onclick: () => openChannelModal(null, 0) }, icon('folderPlus'), 'New channel')));
@@ -466,6 +490,8 @@ function renderUserInfo(box, u) {
   slider.oninput = () => { val.textContent = slider.value + '%'; act('peer_volume', { id: u.id, volume: slider.value / 100 }); };
   slider.onchange = () => slider.blur();
   add(box, el('div', { class: 'slider-row' }, el('label', { text: 'Volume' }), slider, val));
+  if (u.sharing && u.channel === S.myChannel) add(box, el('div', { class: 'actions' },
+    el('button', { class: 'btn primary', onclick: () => watchUser(u) }, icon('monitor'), 'Watch ' + u.nick + '’s screen')));
   add(box, el('div', { class: 'actions' },
     el('button', { class: 'btn', onclick: () => openPM(u) }, icon('msg'), 'Message'),
     el('button', { class: 'btn', onclick: () => pokeUser(u) }, icon('bell'), 'Poke'),
@@ -695,6 +721,7 @@ async function adminButton(e) {
     can('tokens.create') && { label: 'Privilege keys…', icon: 'key', fn: () => openRoleManager('keys') },
     can('ban.list') && { label: 'Ban list', icon: 'list', fn: openBans },
     can('server.edit') && { label: 'Edit server name & welcome', icon: 'edit', fn: openServerEdit },
+    can('server.password') && { label: 'Server password…', icon: 'lock', fn: openServerPassword },
     'sep',
     { label: 'Use privilege key…', icon: 'key', fn: useToken },
   ]);
@@ -758,6 +785,7 @@ function userMenu(e, u) {
     ]);
   }
   showCtx(e.clientX, e.clientY, [
+    u.sharing && u.channel === S.myChannel && { label: 'Watch screen', icon: 'monitor', fn: () => watchUser(u) },
     { label: 'Send private message', icon: 'msg', fn: () => openPM(u) },
     { label: 'Poke', icon: 'bell', fn: () => pokeUser(u) },
     { label: u.localMute ? 'Unmute for me' : 'Mute for me', icon: u.localMute ? 'vol' : 'volX', fn: () => act('peer_mute', { id: u.id, on: !u.localMute }) },
@@ -1150,6 +1178,9 @@ async function openSettings(initialTab) {
             if (d != null) act('download_dir', { dir: d });
           },
         }, 'Change')),
+      el('label', { class: 'check', style: 'margin-top:10px' },
+        el('input', { type: 'checkbox', checked: S.autoMedia, onchange: (e) => act('auto_media', { on: e.target.checked }) }),
+        'Show image and video previews automatically (images up to 16 MB, videos up to 64 MB)'),
       el('div', { class: 'section-title', text: 'Identity' }),
       el('div', { class: 'fp', text: S.identity }),
       el('div', { class: 'callout', text: 'There are no accounts. Your identity is an Ed25519 key pair stored only on this computer' + (S.keyProtected ? ', encrypted with your Windows login (DPAPI)' : ' (file readable only by your user)') + '. Others can verify you by comparing this fingerprint.' }),
@@ -1379,13 +1410,24 @@ async function uploadFiles(files) {
     if (f.size > 4 * 1024 ** 3) { toast(f.name + ' is larger than 4 GB', 'error'); continue; }
     if (f.size > 50 * 1024 ** 2) toast('Preparing ' + f.name + '…');
     try {
-      const r = await fetch('/upload?kind=' + t.kind + '&target=' + t.target + '&name=' + encodeURIComponent(f.name) + '&token=' + encodeURIComponent(TOKEN), { method: 'POST', body: f });
+      const q = 'kind=' + t.kind + '&target=' + t.target + '&name=' + encodeURIComponent(f.name) +
+        '&mime=' + encodeURIComponent(f.type || '') + '&token=' + encodeURIComponent(TOKEN);
+      const r = await fetch('/upload?' + q, { method: 'POST', body: f });
       const j = await r.json();
       if (!j.ok) throw new Error(j.error);
     } catch (e) {
       toast('Sending ' + f.name + ' failed: ' + e.message, 'error');
     }
   }
+}
+
+// Screenshots pasted from the clipboard arrive as "image.png": give them a useful name.
+function namePasted(f) {
+  if (f.name && !/^image\.(png|jpe?g|gif|webp|bmp)$/i.test(f.name)) return f;
+  const ext = (f.type.split('/')[1] || 'png').replace('jpeg', 'jpg');
+  const d = new Date(), p = (n) => String(n).padStart(2, '0');
+  const stamp = `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}.${p(d.getMinutes())}.${p(d.getSeconds())}`;
+  return new File([f], `Screenshot ${stamp}.${ext}`, { type: f.type });
 }
 
 function fileState(id) {
@@ -1396,21 +1438,28 @@ function fileState(id) {
 function onFileEvent(d) {
   const st = fileState(d.id);
   if (d.dir === 'in') {
+    const was = st.in && st.in.state;
     st.in = Object.assign(st.in || {}, d);
-    if (d.state === 'done') { AE.sound('file'); toast('Received ' + d.name); }
-    if (d.state === 'failed') toast('Download of ' + d.name + ' failed: ' + (d.error || 'unknown error'), 'error');
+    if (d.state === 'done' && was !== 'done' && !d.cached) { AE.sound('file'); toast('Received ' + d.name); }
+    if (d.state === 'done' && d.saved) toast('Saved ' + d.name);
+    if (d.state === 'failed' && !d.cached) toast('Download of ' + d.name + ' failed: ' + (d.error || 'unknown error'), 'error');
   } else {
     st.out.set(d.peerId, Object.assign(st.out.get(d.peerId) || {}, d));
   }
   document.querySelectorAll('.filecard').forEach((n) => { if (n.dataset.fileId === d.id) renderFileCard(n); });
 }
 
+const previewKind = (mime) => (/^image\/(png|jpeg|gif|webp|bmp)$/.test(mime || '') ? 'image' : /^video\/(mp4|webm)$/.test(mime || '') ? 'video' : '');
+const mediaURL = (id) => '/media?id=' + encodeURIComponent(id) + '&token=' + encodeURIComponent(TOKEN);
+
 function fileCard(f) {
   const n = el('div', { class: 'filecard' });
   n.dataset.fileId = f.id;
   n.dataset.name = f.name;
   n.dataset.size = f.size;
+  n.dataset.mime = f.mime || '';
   n.dataset.own = f.own ? '1' : '';
+  n.dataset.auto = f.auto ? '1' : '';
   renderFileCard(n);
   return n;
 }
@@ -1420,38 +1469,69 @@ function progressBar(done, total) {
   return el('div', { class: 'progress' }, el('div', { style: 'width:' + pct + '%' }));
 }
 
+function mediaPreview(id, kind, name) {
+  if (kind === 'image') {
+    const img = el('img', { class: 'media-thumb', alt: name, src: mediaURL(id), title: 'Click to enlarge', loading: 'lazy' });
+    img.onclick = () => openLightbox(id, kind, name);
+    img.onerror = () => img.remove();
+    return img;
+  }
+  const v = el('video', { class: 'media-thumb', src: mediaURL(id), controls: true, preload: 'metadata' });
+  v.onerror = () => v.remove();
+  return v;
+}
+
 function renderFileCard(n) {
   const id = n.dataset.fileId, name = n.dataset.name, size = +n.dataset.size, own = !!n.dataset.own;
+  const kind = previewKind(n.dataset.mime);
   const st = fileStates.get(id) || { in: null, out: new Map() };
-  const head = el('div', { class: 'fc-head' }, icon('file'), el('div', { class: 'fc-name' }, el('div', { text: name }), el('div', { class: 'hint', text: fmtBytes(size) + ' · end-to-end encrypted' })));
+  const head = el('div', { class: 'fc-head' }, icon(kind === 'image' ? 'image' : kind === 'video' ? 'monitor' : 'file'),
+    el('div', { class: 'fc-name' }, el('div', { text: name }), el('div', { class: 'hint', text: fmtBytes(size) + ' · end-to-end encrypted' })));
   const body = el('div', { class: 'fc-body' });
+  const x = st.in;
+  const showPreview = kind && (own || (x && x.state === 'done'));
+  if (showPreview) body.append(mediaPreview(id, kind, name));
   if (own) {
-    if (!st.out.size) body.append(el('div', { class: 'hint', text: 'Offered. Stay connected until the recipients have downloaded it.' }));
-    for (const x of st.out.values()) {
-      const line = el('div', { class: 'fc-line' }, el('span', { text: '→ ' + x.peer }));
-      if (x.state === 'sending') line.append(progressBar(x.bytes, x.size), el('span', { class: 'hint', text: Math.round((x.bytes / Math.max(1, x.size)) * 100) + '%' }));
-      else if (x.state === 'done') line.append(el('span', { class: 'ok', text: '✓ delivered' }));
-      else if (x.state === 'failed') line.append(el('span', { class: 'err', text: x.error || 'failed' }));
+    if (!kind && !st.out.size) body.append(el('div', { class: 'hint', text: 'Offered. Stay connected until the recipients have downloaded it.' }));
+    for (const o of st.out.values()) {
+      const line = el('div', { class: 'fc-line' }, el('span', { text: '→ ' + o.peer }));
+      if (o.state === 'sending') line.append(progressBar(o.bytes, o.size), el('span', { class: 'hint', text: Math.round((o.bytes / Math.max(1, o.size)) * 100) + '%' }));
+      else if (o.state === 'done') line.append(el('span', { class: 'ok', text: '✓ delivered' }));
+      else if (o.state === 'failed') line.append(el('span', { class: 'err', text: o.error || 'failed' }));
       body.append(line);
     }
     body.append(el('div', { class: 'fc-actions' }, el('button', { class: 'btn', onclick: () => act('file_cancel', { id }) }, 'Withdraw')));
-  } else {
-    const x = st.in;
-    if (!x || x.state === 'failed') {
-      add(body, x && el('div', { class: 'err', text: x.error || 'failed' }),
-        el('div', { class: 'fc-actions' }, el('button', { class: 'btn primary', onclick: () => act('file_download', { id }) }, icon('download'), x ? 'Retry' : 'Download')));
-    } else if (x.state === 'requesting') {
-      body.append(el('div', { class: 'hint', text: 'Waiting for the sender…' }));
-    } else if (x.state === 'downloading' || x.state === 'verifying') {
-      body.append(el('div', { class: 'fc-line' }, progressBar(x.bytes || 0, size),
-        el('span', { class: 'hint', text: x.state === 'verifying' ? 'verifying…' : fmtBytes(x.bytes || 0) })),
-      el('div', { class: 'fc-actions' }, el('button', { class: 'btn', onclick: () => act('file_cancel', { id }) }, 'Cancel')));
-    } else if (x.state === 'done') {
-      body.append(el('div', { class: 'fc-line' }, el('span', { class: 'ok', text: '✓ Saved, checksum verified' })),
-        el('div', { class: 'fc-actions' }, el('button', { class: 'btn', onclick: () => act('file_reveal', { id }) }, icon('folder'), 'Show in folder')));
+  } else if (!x || x.state === 'failed') {
+    add(body, x && !x.cached && el('div', { class: 'err', text: x.error || 'failed' }),
+      el('div', { class: 'fc-actions' }, el('button', { class: 'btn primary', onclick: () => act('file_download', { id }) }, icon('download'), x && !x.cached ? 'Retry' : 'Download')));
+  } else if (x.state === 'requesting' || x.state === 'downloading' || x.state === 'verifying') {
+    body.append(el('div', { class: 'fc-line' }, progressBar(x.bytes || 0, size),
+      el('span', { class: 'hint', text: x.cached ? 'loading preview…' : x.state === 'verifying' ? 'verifying…' : x.state === 'requesting' ? 'waiting for the sender…' : fmtBytes(x.bytes || 0) })));
+    if (!x.cached) body.append(el('div', { class: 'fc-actions' }, el('button', { class: 'btn', onclick: () => act('file_cancel', { id }) }, 'Cancel')));
+  } else if (x.state === 'done') {
+    if (x.cached && !x.saved) {
+      body.append(el('div', { class: 'fc-actions' }, el('button', { class: 'btn', onclick: () => act('file_save', { id }) }, icon('download'), 'Save')));
+    } else {
+      if (!kind) body.append(el('div', { class: 'fc-line' }, el('span', { class: 'ok', text: '✓ Saved, checksum verified' })));
+      body.append(el('div', { class: 'fc-actions' }, el('button', { class: 'btn', onclick: () => act('file_reveal', { id }) }, icon('folder'), 'Show in folder')));
     }
   }
   n.replaceChildren(head, body);
+}
+
+function openLightbox(id, kind, name) {
+  const media = kind === 'image' ? el('img', { src: mediaURL(id), alt: name }) : el('video', { src: mediaURL(id), controls: true, autoplay: true });
+  const st = fileStates.get(id);
+  const own = !st || !st.in;
+  const ov = el('div', { class: 'lightbox' },
+    el('div', { class: 'lb-bar' }, el('span', { class: 'lb-name', text: name }),
+      !own && el('button', { class: 'btn', onclick: (e) => { e.stopPropagation(); act('file_save', { id }).then((r) => { if (r) act('file_reveal', { id }); }); } }, icon('folder'), 'Save & show in folder'),
+      el('button', { class: 'btn', onclick: () => ov.remove() }, icon('x'), 'Close')),
+    el('div', { class: 'lb-media' }, media));
+  ov.addEventListener('click', (e) => { if (e.target === ov || e.target.classList.contains('lb-media')) ov.remove(); });
+  const esc = (e) => { if (e.key === 'Escape') { ov.remove(); document.removeEventListener('keydown', esc, true); } };
+  document.addEventListener('keydown', esc, true);
+  document.body.append(ov);
 }
 
 $('btn-attach').onclick = () => {
@@ -1459,18 +1539,114 @@ $('btn-attach').onclick = () => {
   input.onchange = () => uploadFiles([...input.files]);
   input.click();
 };
+
+// Paste files/screenshots anywhere (text pastes are left alone).
+document.addEventListener('paste', (e) => {
+  const files = [...((e.clipboardData && e.clipboardData.files) || [])];
+  if (!files.length || !S || !S.connected) return;
+  e.preventDefault();
+  if (!chatTarget()) { toast('Open a channel or private chat to paste files', 'warn'); return; }
+  uploadFiles(files.map(namePasted));
+});
+
+// Drop files anywhere on the window.
 (() => {
-  const pane = document.querySelector('.chat-pane');
   const hasFiles = (e) => e.dataTransfer && [...e.dataTransfer.types].includes('Files');
-  pane.addEventListener('dragover', (e) => { if (hasFiles(e)) { e.preventDefault(); pane.classList.add('dropping'); } });
-  pane.addEventListener('dragleave', (e) => { if (!pane.contains(e.relatedTarget)) pane.classList.remove('dropping'); });
-  pane.addEventListener('drop', (e) => {
-    pane.classList.remove('dropping');
+  let depth = 0;
+  const overlay = $('drop-overlay');
+  const show = (on) => {
+    if (on) {
+      const t = chatTarget();
+      const where = !t ? 'Open a channel or private chat first' : t.kind === 'channel' ? 'Drop to send to # ' + (tabs.get('channel').title || 'channel') : 'Drop to send to ' + (tabs.get(activeTab) || {}).title;
+      overlay.querySelector('.drop-text').textContent = where;
+    }
+    overlay.classList.toggle('hidden', !on);
+  };
+  document.addEventListener('dragenter', (e) => { if (hasFiles(e) && S && S.connected) { depth++; show(true); } });
+  document.addEventListener('dragleave', (e) => { if (hasFiles(e) && --depth <= 0) { depth = 0; show(false); } });
+  document.addEventListener('dragover', (e) => { if (hasFiles(e)) e.preventDefault(); });
+  document.addEventListener('drop', (e) => {
     if (!hasFiles(e)) return;
     e.preventDefault();
-    uploadFiles([...e.dataTransfer.files]);
+    depth = 0;
+    show(false);
+    if (S && S.connected) uploadFiles([...e.dataTransfer.files].map(namePasted));
   });
 })();
+
+// ---------------------------------------------------------------- server password
+function openServerPassword() {
+  const pw = el('input', { type: 'password', maxlength: 128, autocomplete: 'new-password' });
+  const pw2 = el('input', { type: 'password', maxlength: 128, autocomplete: 'new-password' });
+  modal({
+    title: 'Server password', icon: 'lock',
+    body: [
+      el('div', { class: 'callout' + (S.serverHasPw ? '' : ' warn'), text: S.serverHasPw ? 'This server requires a password to connect.' : 'This server has no password: anyone who knows the address can connect.' }),
+      el('div', { class: 'field' }, el('label', { text: S.serverHasPw ? 'New password' : 'Password' }), pw),
+      el('div', { class: 'field' }, el('label', { text: 'Repeat password' }), pw2),
+      el('div', { class: 'hint', text: 'People who are connected stay connected. Share the password privately with anyone who should be able to join.' }),
+    ],
+    buttons: [
+      { label: 'Cancel' },
+      S.serverHasPw && {
+        label: 'Remove password', danger: true, fn: async () => {
+          if (!(await confirmModal('Remove server password', 'Anyone who knows the server address will be able to connect. Continue?', 'Remove', true))) return false;
+          return act('server_password', { remove: true });
+        },
+      },
+      {
+        label: S.serverHasPw ? 'Change password' : 'Set password', primary: true, fn: async () => {
+          if (!pw.value) { toast('Enter a password', 'error'); return false; }
+          if (pw.value !== pw2.value) { toast('The passwords do not match', 'error'); return false; }
+          return (await act('server_password', { password: pw.value })) === undefined ? false : true;
+        },
+      },
+    ].filter(Boolean),
+  });
+}
+
+// ---------------------------------------------------------------- screen share UI
+function renderShareButton() {
+  const b = $('btn-share');
+  const allowed = S && S.connected && (can('screen.share') || SS.sharing);
+  b.classList.toggle('hidden', !allowed);
+  btnContent(b, 'monitor', SS.sharing ? 'Stop sharing' : 'Share screen');
+  b.classList.toggle('sharing', SS.sharing);
+}
+
+async function toggleShare() {
+  try {
+    if (SS.sharing) await SS.stop();
+    else { await SS.start(); toast('You are sharing your screen. People in your channel can click LIVE to watch.'); }
+  } catch (e) {
+    if (e && e.name !== 'NotAllowedError' && e.name !== 'AbortError') toast('Could not share: ' + e.message, 'error');
+  }
+  renderShareButton();
+}
+
+function watchUser(u) {
+  SS.watch(u.id);
+  renderStage();
+}
+
+function renderStage() {
+  const stage = $('stage');
+  const u = SS.watching && userById(SS.watching);
+  if (!u) { stage.classList.add('hidden'); stage.replaceChildren(); return; }
+  if (stage.dataset.for === String(u.id) && !stage.classList.contains('hidden')) return; // keep the canvas
+  stage.dataset.for = String(u.id);
+  const canvas = el('canvas', { id: 'stage-canvas' });
+  const fs = el('button', { class: 'btn', onclick: () => canvas.requestFullscreen && canvas.requestFullscreen() }, icon('expand'), 'Fullscreen');
+  const close = el('button', { class: 'btn', onclick: () => { SS.unwatch(); renderStage(); } }, icon('x'), 'Stop watching');
+  stage.replaceChildren(
+    el('div', { class: 'stage-bar' }, el('span', { class: 'badge live', text: 'LIVE' }), el('span', { class: 'stage-title', text: u.nick + '’s screen' }),
+      el('span', { class: 'hint', style: 'margin:0', text: 'end-to-end encrypted' }), el('span', { class: 'spacer' }), fs, close),
+    el('div', { class: 'stage-view' }, canvas, el('div', { id: 'stage-wait', class: 'hint', text: 'Connecting to the screen share…' })));
+  stage.classList.remove('hidden');
+}
+
+SS.onChange = () => { renderShareButton(); renderStage(); renderTree(); };
+$('btn-share').onclick = toggleShare;
 
 // ---------------------------------------------------------------- roles & permissions
 let roleMgr = null;

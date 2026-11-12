@@ -400,7 +400,7 @@ func TestFileTransfer(t *testing.T) {
 	for i := range data {
 		data[i] = byte(i*7 + i/1000)
 	}
-	if err := alice.OfferFile("channel", 0, "../../evil/report.pdf", bytes.NewReader(data)); err != nil {
+	if err := alice.OfferFile("channel", 0, "../../evil/report.pdf", "application/pdf", bytes.NewReader(data)); err != nil {
 		t.Fatal(err)
 	}
 	var fileID string

@@ -66,6 +66,7 @@ type Config struct {
 	Audio        AudioSettings         `json:"audio"`
 	Whisper      []WhisperList         `json:"whisper"`
 	DownloadDir  string                `json:"downloadDir"`
+	NoAutoMedia  bool                  `json:"noAutoMedia"` // do not auto-load image/video previews
 }
 
 func defaultConfig() *Config {
@@ -196,3 +197,6 @@ func (s *Store) SaveAvatar(b []byte) error {
 
 // OutboxDir holds copies of files we offered, until we disconnect.
 func (s *Store) OutboxDir() string { return filepath.Join(s.dir, "outbox") }
+
+// CacheDir holds automatically loaded media previews (cleared on start).
+func (s *Store) CacheDir() string { return filepath.Join(s.dir, "cache") }

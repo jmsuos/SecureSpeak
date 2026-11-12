@@ -23,6 +23,7 @@
     </div>
     <div class="tb-sep"></div>
     <button class="tb ptt" id="btn-ptt" title="Hold to talk"></button>
+    <button class="tb share hidden" id="btn-share" title="Share your screen with your channel (end-to-end encrypted)"></button>
     <div class="tb-group" id="whisper-bar"></div>
     <div class="mic-meter" title="Microphone level"><div id="mic-level"></div><div id="mic-thresh"></div></div>
     <div class="spacer"></div>
@@ -52,6 +53,7 @@
         </form>
       </div>
     </section>
+    <div id="stage" class="stage hidden"></div>
   </main>
   <footer class="status">
     <span id="st-conn" class="st-item"></span>
@@ -67,7 +69,9 @@
 <div id="modal-root"></div>
 <div id="ctx" class="ctx hidden"></div>
 <div id="toasts"></div>
+<div id="drop-overlay" class="drop-overlay hidden"><div class="drop-box"><div class="drop-icon">⇪</div><div class="drop-text"></div><div class="hint">Files are end-to-end encrypted</div></div></div>
 <script src="audio.js"></script>
+<script src="screenshare.js"></script>
 <script src="app.js"></script>
 </body>
 </html>

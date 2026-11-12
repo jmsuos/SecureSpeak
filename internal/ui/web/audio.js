@@ -303,6 +303,7 @@ const AE = {
 
   // [1][sender u32][flags][codec][seq u32][payload]
   onNetFrame(b) {
+    if (b[0] === 2) { if (window.SS) window.SS.onFrame(b); return; } // screen share
     if (b.length < 12 || b[0] !== 1) return;
     const dv = new DataView(b.buffer, b.byteOffset);
     const sender = dv.getUint32(1), flags = b[5], codec = b[6], seq = dv.getUint32(7);

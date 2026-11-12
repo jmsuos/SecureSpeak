@@ -61,6 +61,8 @@ type Client struct {
 	Sig         []byte
 	Channel     uint32
 	Key         string   // hex identity key (proven on connect)
+	Sharing     bool     // screen share active
+	Watching    uint32   // id of the sharer this client watches (0 = none)
 	Roles       []uint32 // assigned roles (besides the default role)
 	Owner       bool
 	Muted       bool
@@ -88,6 +90,8 @@ type Client struct {
 	msgLast    time.Time
 	fileTok    float64
 	fileLast   time.Time
+	videoTok   float64
+	videoLast  time.Time
 	failedAuth int
 }
 
@@ -542,6 +546,7 @@ func (s *Server) handleConn(raw net.Conn) {
 		MaxClients: s.cfg.MaxClients,
 		Whisper:    s.cfg.AllowWhisper,
 		Roles:      s.roleInfosLocked(),
+		HasPw:      s.cfg.ServerPasswordHash != "",
 	}
 	for _, id := range s.sortedChannelIDs() {
 		welcome.Channels = append(welcome.Channels, s.channelInfo(s.channels[id]))
@@ -625,7 +630,7 @@ func (s *Server) channelInfo(c *Channel) proto.ChannelInfo {
 func (s *Server) clientInfo(c *Client) proto.ClientInfo {
 	return proto.ClientInfo{
 		ID: c.ID, Nick: c.Nick, Channel: c.Channel, IDPub: c.IDPub, EphPub: c.EphPub, Sig: c.Sig,
-		Roles: c.Roles, Owner: c.Owner, Muted: c.Muted, Deaf: c.Deaf, ServerMuted: c.ServerMuted, Away: c.Away, AwayMsg: c.AwayMsg,
+		Roles: c.Roles, Owner: c.Owner, Sharing: c.Sharing, Muted: c.Muted, Deaf: c.Deaf, ServerMuted: c.ServerMuted, Away: c.Away, AwayMsg: c.AwayMsg,
 	}
 }
 
@@ -667,6 +672,25 @@ func (c *Client) allowVoice() bool {
 	return bucket(&c.voiceTok, &c.voiceLast, 60, 30)
 }
 
+// allowVideoBytes limits screen share traffic to ~8 MB/s per sharer.
+func (c *Client) allowVideoBytes(n int) bool {
+	c.limMu.Lock()
+	defer c.limMu.Unlock()
+	const rate, burst = 8 << 20, 16 << 20
+	now := time.Now()
+	if c.videoLast.IsZero() {
+		c.videoTok = burst
+	} else {
+		c.videoTok = min(burst, c.videoTok+now.Sub(c.videoLast).Seconds()*rate)
+	}
+	c.videoLast = now
+	if c.videoTok < float64(n) {
+		return false
+	}
+	c.videoTok -= float64(n)
+	return true
+}
+
 // allowFileBytes limits relayed file data to ~16 MB/s per client.
 func (c *Client) allowFileBytes(n int) bool {
 	c.limMu.Lock()
@@ -705,6 +729,10 @@ func (s *Server) readLoop(c *Client, br *bufio.Reader) {
 		case proto.FrameVoice:
 			if c.allowVoice() {
 				s.routeVoice(c, payload)
+			}
+		case proto.FrameVideo:
+			if c.allowVideoBytes(len(payload)) {
+				s.routeVideo(c, payload)
 			}
 		case proto.FrameJSON:
 			var m proto.Message
@@ -748,8 +776,26 @@ func (s *Server) handle(c *Client, m proto.Message) bool {
 			s.mu.Lock()
 			c.Muted, c.Deaf, c.Away = st.Muted, st.Deaf, st.Away
 			c.AwayMsg = cleanName(st.AwayMsg, 80)
+			if st.Sharing && !s.hasLocked(c, proto.PermScreenShare) {
+				st.Sharing = false
+				c.sendErr("permission", "you are not allowed to share your screen")
+			}
+			c.Sharing = st.Sharing
 			s.broadcastLocked(proto.TClientUpdate, s.clientInfo(c), 0)
 			s.mu.Unlock()
+		}
+	case proto.TWatch:
+		if w, ok := decode[proto.Watch](m); ok {
+			s.watch(c, w)
+		}
+	case proto.TKeyframeReq:
+		if kr, ok := decode[proto.KeyframeReq](m); ok {
+			s.mu.RLock()
+			sharer := s.clients[kr.To]
+			if sharer != nil && c.Watching == sharer.ID {
+				sharer.send(proto.TKeyframeReq, proto.KeyframeReq{From: c.ID})
+			}
+			s.mu.RUnlock()
 		}
 	case proto.TNickChange:
 		if n, ok := decode[proto.Nick](m); ok {
@@ -1170,6 +1216,7 @@ func (s *Server) handleAdmin(c *Client, m proto.Message) bool {
 	need := map[string]string{
 		proto.TBan: proto.PermClientBan, proto.TBanList: proto.PermBanList, proto.TUnban: proto.PermBanList,
 		proto.TMove: proto.PermClientMove, proto.TServerMute: proto.PermClientMute, proto.TServerEdit: proto.PermServerEdit,
+		proto.TServerPw: proto.PermServerPassword,
 	}[m.T]
 	if m.T == proto.TKick {
 		need = proto.PermClientKickChannel
@@ -1303,7 +1350,33 @@ func (s *Server) handleAdmin(c *Client, m proto.Message) bool {
 		if err := SaveJSON(s.cfgPath, s.cfg); err != nil {
 			s.Logf("save config: %v", err)
 		}
-		s.broadcastLocked(proto.TServerUpdate, proto.ServerEdit{Name: s.cfg.Name, WelcomeMsg: s.cfg.WelcomeMessage}, 0)
+		s.broadcastLocked(proto.TServerUpdate, s.serverEditLocked(), 0)
+	case proto.TServerPw:
+		sp, ok := decode[proto.ServerPassword](m)
+		if !ok {
+			return true
+		}
+		switch {
+		case sp.Remove:
+			s.cfg.ServerPasswordHash = ""
+		case sp.Password == "" || len(sp.Password) > 128:
+			c.sendErr("password", "the password must be 1-128 characters")
+			return true
+		default:
+			s.cfg.ServerPasswordHash = HashPassword(sp.Password)
+		}
+		if err := SaveJSON(s.cfgPath, s.cfg); err != nil {
+			s.Logf("save config: %v", err)
+			c.sendErr("password", "could not save the server configuration")
+			return true
+		}
+		msg := "The server password was changed. People who are connected stay connected; new connections need the new password."
+		if sp.Remove {
+			msg = "The server password was removed. Anyone with the address can connect now."
+		}
+		c.send(proto.TNotice, proto.Notice{Msg: msg})
+		s.broadcastLocked(proto.TServerUpdate, s.serverEditLocked(), 0)
+		s.Logf("%q %s the server password", c.Nick, map[bool]string{true: "removed", false: "changed"}[sp.Remove])
 	default:
 		c.sendErr("protocol", "unknown message "+m.T)
 	}
@@ -1384,6 +1457,59 @@ func (s *Server) routeVoice(c *Client, payload []byte) {
 			s.udp.WriteToUDP(pkt, addr)
 		} else {
 			t.sendFrame(proto.FrameVoice, out)
+		}
+	}
+}
+
+func (s *Server) serverEditLocked() proto.ServerEdit {
+	return proto.ServerEdit{Name: s.cfg.Name, WelcomeMsg: s.cfg.WelcomeMessage, HasPw: s.cfg.ServerPasswordHash != ""}
+}
+
+// watch subscribes a client to a screen share in its own channel.
+func (s *Server) watch(c *Client, w proto.Watch) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if !w.On {
+		c.Watching = 0
+		return
+	}
+	t := s.clients[w.ID]
+	if t == nil || t == c || !t.Sharing || t.Channel != c.Channel {
+		c.sendErr("screen", "this screen share is not available")
+		return
+	}
+	c.Watching = t.ID
+	t.send(proto.TKeyframeReq, proto.KeyframeReq{From: c.ID}) // new viewer needs a keyframe
+}
+
+// routeVideo relays an end-to-end encrypted, signed screen share frame to
+// the clients watching the sender in the same channel. Slow viewers skip
+// frames (and ask for a keyframe) instead of building up a backlog.
+func (s *Server) routeVideo(c *Client, signed []byte) {
+	if len(signed) < e2e.VoiceHeaderLen+16+e2e.VoiceSigLen || len(signed) > proto.MaxFrameSize-8 {
+		return
+	}
+	s.mu.RLock()
+	if !c.Sharing || !s.hasLocked(c, proto.PermScreenShare) {
+		s.mu.RUnlock()
+		return
+	}
+	var targets []*Client
+	for _, o := range s.clients {
+		if o.Watching == c.ID && o.Channel == c.Channel {
+			targets = append(targets, o)
+		}
+	}
+	s.mu.RUnlock()
+	if len(targets) == 0 {
+		return
+	}
+	out := make([]byte, 4+len(signed))
+	binary.BigEndian.PutUint32(out, c.ID)
+	copy(out[4:], signed)
+	for _, t := range targets {
+		if len(t.out) < 64 {
+			t.sendFrame(proto.FrameVideo, out)
 		}
 	}
 }
