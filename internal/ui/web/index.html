@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>SecureSpeak</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%235b7cfa'/%3E%3Cpath d='M10 15v-3a6 6 0 0 1 12 0v3' stroke='white' stroke-width='2.5' fill='none'/%3E%3Crect x='8' y='15' width='16' height='11' rx='2.5' fill='white'/%3E%3C/svg%3E">
+<link rel="stylesheet" href="app.css">
+</head>
+<body>
+<div id="app">
+  <header class="toolbar">
+    <div class="brand"><span class="logo"></span><span>SecureSpeak</span></div>
+    <div class="tb-group">
+      <button class="tb" id="btn-connect" title="Connect (Ctrl+S)"></button>
+      <button class="tb" id="btn-disconnect" title="Disconnect"></button>
+    </div>
+    <div class="tb-sep"></div>
+    <div class="tb-group">
+      <button class="tb toggle" id="btn-mute" title="Mute microphone (Ctrl+M)"></button>
+      <button class="tb toggle" id="btn-deaf" title="Mute speakers / deafen (Ctrl+D)"></button>
+      <button class="tb toggle" id="btn-away" title="Set away"></button>
+    </div>
+    <div class="tb-sep"></div>
+    <button class="tb ptt" id="btn-ptt" title="Hold to talk"></button>
+    <div class="tb-group" id="whisper-bar"></div>
+    <div class="mic-meter" title="Microphone level"><div id="mic-level"></div><div id="mic-thresh"></div></div>
+    <div class="spacer"></div>
+    <div class="tb-group">
+      <button class="tb" id="btn-admin" title="Server administration"></button>
+      <button class="tb" id="btn-settings" title="Settings"></button>
+    </div>
+  </header>
+  <main>
+    <section class="pane tree-pane">
+      <div class="pane-head">
+        <span id="server-title">Not connected</span>
+        <button class="icon-btn" id="btn-new-channel" title="Create channel"></button>
+      </div>
+      <div id="tree" class="tree"></div>
+    </section>
+    <div class="resizer" id="resizer"></div>
+    <section class="side">
+      <div class="pane info-pane" id="info"></div>
+      <div class="pane chat-pane">
+        <div class="tabs" id="tabs"></div>
+        <div class="messages" id="messages"></div>
+        <form class="chat-form" id="chat-form" autocomplete="off">
+          <button class="attach" id="btn-attach" type="button" title="Send a file (end-to-end encrypted)"></button>
+          <input id="chat-input" maxlength="4000" placeholder="Type a message…">
+          <button class="send" type="submit" title="Send"></button>
+        </form>
+      </div>
+    </section>
+  </main>
+  <footer class="status">
+    <span id="st-conn" class="st-item"></span>
+    <span id="st-transport" class="st-item"></span>
+    <span id="st-ping" class="st-item"></span>
+    <span id="st-audio" class="st-item"></span>
+    <span id="st-whisper" class="st-item whisper-note"></span>
+    <span class="spacer"></span>
+    <span id="st-e2e" class="st-item e2e"></span>
+    <span id="st-id" class="st-item mono" title="Your identity fingerprint"></span>
+  </footer>
+</div>
+<div id="modal-root"></div>
+<div id="ctx" class="ctx hidden"></div>
+<div id="toasts"></div>
+<script src="audio.js"></script>
+<script src="app.js"></script>
+</body>
+</html>

@@ -1,0 +1,5 @@
+# build output
+/dist/
+# server/client data created when running locally
+/data/
+*.part
