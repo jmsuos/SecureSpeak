@@ -21,12 +21,12 @@ fi
 # Linux client
 GOOS=linux GOARCH=amd64 go build -trimpath -ldflags "$LDFLAGS" -o dist/linux-client/securespeak ./cmd/securespeak
 GOOS=linux GOARCH=arm64 go build -trimpath -ldflags "$LDFLAGS" -o dist/linux-client/securespeak-arm64 ./cmd/securespeak
-cp deploy/linux/securespeak.desktop deploy/linux/securespeak.svg deploy/linux/install-client.sh dist/linux-client/
+cp deploy/linux/securespeak.desktop deploy/linux/securespeak.svg deploy/linux/install-client.sh LICENSE dist/linux-client/
 
 # Linux server
 GOOS=linux GOARCH=amd64 go build -trimpath -ldflags "-s -w" -o dist/linux-server/securespeak-server ./cmd/securespeak-server
 GOOS=linux GOARCH=arm64 go build -trimpath -ldflags "-s -w" -o dist/linux-server/securespeak-server-arm64 ./cmd/securespeak-server
-cp deploy/securespeak.service deploy/install-server.sh dist/linux-server/
+cp deploy/securespeak.service deploy/install-server.sh LICENSE dist/linux-server/
 
 # .deb packages for Ubuntu / Linux Mint / Debian
 if command -v dpkg-deb >/dev/null; then
@@ -40,6 +40,7 @@ if command -v dpkg-deb >/dev/null; then
     install -m 0644 deploy/linux/securespeak.desktop "$root/usr/share/applications/"
     install -m 0644 deploy/linux/securespeak.svg "$root/usr/share/icons/hicolor/scalable/apps/"
     install -m 0644 README.md "$root/usr/share/doc/securespeak/"
+    install -m 0644 LICENSE "$root/usr/share/doc/securespeak/copyright"
     cat > "$root/DEBIAN/control" <<EOF
 Package: securespeak
 Version: $VERSION
@@ -47,6 +48,7 @@ Section: net
 Priority: optional
 Architecture: $arch
 Maintainer: SecureSpeak <noreply@localhost>
+Homepage: https://github.com/jmsuos/SecureSpeak
 Recommends: chromium | chromium-browser | google-chrome-stable | microsoft-edge-stable | firefox, xdg-utils
 Description: End-to-end encrypted voice and text chat (client)
  TeamSpeak-style voice chat with Opus audio, noise suppression, whisper,
