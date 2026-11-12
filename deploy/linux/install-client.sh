@@ -4,9 +4,10 @@ set -e
 cd "$(dirname "$0")"
 BIN=securespeak
 [ "$(uname -m)" = "aarch64" ] && [ -f securespeak-arm64 ] && BIN=securespeak-arm64
-mkdir -p "$HOME/.local/bin" "$HOME/.local/share/applications" "$HOME/.local/share/icons/hicolor/scalable/apps"
+mkdir -p "$HOME/.local/bin" "$HOME/.local/share/applications" "$HOME/.local/share/icons/hicolor/512x512/apps"
 install -m 0755 "$BIN" "$HOME/.local/bin/securespeak"
-install -m 0644 securespeak.svg "$HOME/.local/share/icons/hicolor/scalable/apps/securespeak.svg"
+install -m 0644 securespeak.png "$HOME/.local/share/icons/hicolor/512x512/apps/securespeak.png"
+rm -f "$HOME/.local/share/icons/hicolor/scalable/apps/securespeak.svg"  # icon of versions before 3.2.1
 sed "s|^Exec=.*|Exec=$HOME/.local/bin/securespeak|" securespeak.desktop > "$HOME/.local/share/applications/securespeak.desktop"
 command -v update-desktop-database >/dev/null && update-desktop-database "$HOME/.local/share/applications" 2>/dev/null || true
 echo "Installed. Start SecureSpeak from your application menu."

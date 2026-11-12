@@ -21,7 +21,7 @@ fi
 # Linux client
 GOOS=linux GOARCH=amd64 go build -trimpath -ldflags "$LDFLAGS" -o dist/linux-client/securespeak ./cmd/securespeak
 GOOS=linux GOARCH=arm64 go build -trimpath -ldflags "$LDFLAGS" -o dist/linux-client/securespeak-arm64 ./cmd/securespeak
-cp deploy/linux/securespeak.desktop deploy/linux/securespeak.svg deploy/linux/install-client.sh LICENSE dist/linux-client/
+cp deploy/linux/securespeak.desktop deploy/linux/securespeak.png deploy/linux/install-client.sh LICENSE dist/linux-client/
 
 # Linux server
 GOOS=linux GOARCH=amd64 go build -trimpath -ldflags "-s -w" -o dist/linux-server/securespeak-server ./cmd/securespeak-server
@@ -33,12 +33,13 @@ if command -v dpkg-deb >/dev/null; then
   for arch in amd64 arm64; do
     root=$(mktemp -d)
     mkdir -p "$root/DEBIAN" "$root/usr/bin" "$root/usr/share/applications" \
-      "$root/usr/share/icons/hicolor/scalable/apps" "$root/usr/share/doc/securespeak"
+      "$root/usr/share/icons/hicolor/512x512/apps" "$root/usr/share/pixmaps" "$root/usr/share/doc/securespeak"
     bin=dist/linux-client/securespeak
     [ $arch = arm64 ] && bin=dist/linux-client/securespeak-arm64
     install -m 0755 "$bin" "$root/usr/bin/securespeak"
     install -m 0644 deploy/linux/securespeak.desktop "$root/usr/share/applications/"
-    install -m 0644 deploy/linux/securespeak.svg "$root/usr/share/icons/hicolor/scalable/apps/"
+    install -m 0644 deploy/linux/securespeak.png "$root/usr/share/icons/hicolor/512x512/apps/"
+    install -m 0644 deploy/linux/securespeak.png "$root/usr/share/pixmaps/"
     install -m 0644 README.md "$root/usr/share/doc/securespeak/"
     install -m 0644 LICENSE "$root/usr/share/doc/securespeak/copyright"
     cat > "$root/DEBIAN/control" <<EOF

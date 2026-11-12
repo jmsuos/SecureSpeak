@@ -80,7 +80,7 @@ jobs:
             dist/linux-client/securespeak-arm64
             dist/linux-client/install-client.sh
             dist/linux-client/securespeak.desktop
-            dist/linux-client/securespeak.svg
+            dist/linux-client/securespeak.png
             dist/linux-client/LICENSE
             dist/linux-server/*
           if-no-files-found: error
@@ -236,7 +236,7 @@ jobs:
           cp artifacts/windows/windows/SecureSpeak.exe "release/SecureSpeak-${{ needs.version.outputs.version }}-portable.exe"
           cp artifacts/linux/linux-client/*.deb release/
           (cd artifacts/linux/linux-client && tar czf "../../../release/securespeak-client-${{ needs.version.outputs.version }}-linux.tar.gz" \
-            securespeak securespeak-arm64 install-client.sh securespeak.desktop securespeak.svg LICENSE)
+            securespeak securespeak-arm64 install-client.sh securespeak.desktop securespeak.png LICENSE)
           (cd artifacts/linux/linux-server && tar czf "../../../release/securespeak-server-${{ needs.version.outputs.version }}-linux.tar.gz" .)
           cp LICENSE release/LICENSE.txt
           (cd release && sha256sum * > SHA256SUMS)

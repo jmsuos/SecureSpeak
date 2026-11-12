@@ -30,3 +30,6 @@ func DownloadDir() string {
 func OpenURL(u string) error    { return exec.Command("open", u).Start() }
 func OpenPath(dir string) error { return exec.Command("open", dir).Start() }
 func Reveal(path string) error  { return exec.Command("open", "-R", path).Start() }
+
+// RefreshUserIcon is only needed on Linux.
+func RefreshUserIcon(png []byte) {}
