@@ -1610,14 +1610,24 @@ function renderShareButton() {
   const b = $('btn-share');
   const allowed = S && S.connected && (can('screen.share') || SS.sharing);
   b.classList.toggle('hidden', !allowed);
-  btnContent(b, 'monitor', SS.sharing ? 'Stop sharing' : 'Share screen');
+  btnContent(b, 'monitor', SS.sharing ? (SS.withAudio ? 'Stop sharing (with sound)' : 'Stop sharing') : 'Share screen');
   b.classList.toggle('sharing', SS.sharing);
 }
 
 async function toggleShare() {
   try {
     if (SS.sharing) await SS.stop();
-    else { await SS.start(); toast('You are sharing your screen. People in your channel can click LIVE to watch.'); }
+    else {
+      await SS.start();
+      if (SS.withAudio) {
+        toast('You are sharing your screen with sound. People in your channel can click LIVE to watch.');
+        if (!SS.ownAudioFiltered) toast('Note: this browser engine cannot keep SecureSpeak\'s own sound out of the shared audio, so viewers may hear voices from the call through your share.', 'warn');
+      } else {
+        toast('You are sharing your screen without sound. ' + (S.platform === 'windows'
+          ? 'To include sound, stop and share again and switch on “Also share system audio” in the sharing dialog (available for screens and windows).'
+          : 'On Linux, sound can only be shared together with a browser tab, not with a screen or window.'), 'warn');
+      }
+    }
   } catch (e) {
     if (e && e.name !== 'NotAllowedError' && e.name !== 'AbortError') toast('Could not share: ' + e.message, 'error');
   }
@@ -1638,9 +1648,15 @@ function renderStage() {
   const canvas = el('canvas', { id: 'stage-canvas' });
   const fs = el('button', { class: 'btn', onclick: () => canvas.requestFullscreen && canvas.requestFullscreen() }, icon('expand'), 'Fullscreen');
   const close = el('button', { class: 'btn', onclick: () => { SS.unwatch(); renderStage(); } }, icon('x'), 'Stop watching');
+  const volVal = el('span', { class: 'val', text: Math.round(SS.shareVolume * 100) + '%' });
+  const vol = el('input', { type: 'range', min: 0, max: 200, step: 5, value: Math.round(SS.shareVolume * 100), title: 'Volume of the shared sound' });
+  vol.oninput = () => { SS.shareVolume = vol.value / 100; volVal.textContent = vol.value + '%'; SS.applyShareVolume(); };
+  const mute = el('button', { class: 'icon-btn', title: 'Mute the shared sound' }, icon(SS.shareMuted ? 'volX' : 'vol'));
+  mute.onclick = () => { SS.shareMuted = !SS.shareMuted; mute.replaceChildren(icon(SS.shareMuted ? 'volX' : 'vol')); SS.applyShareVolume(); };
+  const audioCtl = el('span', { class: 'stage-audio' }, mute, vol, volVal);
   stage.replaceChildren(
     el('div', { class: 'stage-bar' }, el('span', { class: 'badge live', text: 'LIVE' }), el('span', { class: 'stage-title', text: u.nick + '’s screen' }),
-      el('span', { class: 'hint', style: 'margin:0', text: 'end-to-end encrypted' }), el('span', { class: 'spacer' }), fs, close),
+      el('span', { class: 'hint', style: 'margin:0', text: 'end-to-end encrypted' }), el('span', { class: 'spacer' }), audioCtl, fs, close),
     el('div', { class: 'stage-view' }, canvas, el('div', { id: 'stage-wait', class: 'hint', text: 'Connecting to the screen share…' })));
   stage.classList.remove('hidden');
 }
