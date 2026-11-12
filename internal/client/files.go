@@ -101,22 +101,23 @@ type remoteOffer struct {
 }
 
 type recvXfer struct {
-	offer    *remoteOffer
-	cache    bool   // auto-loaded media preview (kept in the cache folder)
-	saved    string // where a cached file was saved by the user
-	state    string // requesting | downloading | verifying | done | failed
-	fc       *e2e.FileCipher
-	chunks   int
-	got      []bool
-	count    int
-	f        *os.File
-	part     string
-	final    string
-	lastEmit time.Time
+	offer     *remoteOffer
+	cache     bool   // auto-loaded media preview (kept in the cache folder)
+	saved     string // where a cached file was saved by the user
+	withdrawn bool   // the sender withdrew the file
+	state     string // requesting | downloading | verifying | done | failed
+	fc        *e2e.FileCipher
+	chunks    int
+	got       []bool
+	count     int
+	f         *os.File
+	part      string
+	final     string
+	lastEmit  time.Time
 }
 
 type fileCtl struct {
-	Op     string `json:"op"` // req | start | ack | done | cancel
+	Op     string `json:"op"` // req | start | ack | done | cancel | withdraw
 	ID     string `json:"id"`
 	Key    []byte `json:"key,omitempty"`
 	Chunks int    `json:"chunks,omitempty"`
@@ -309,7 +310,7 @@ func (c *Client) MediaFile(id string) (string, bool) {
 	if off := s.offers[id]; off != nil {
 		return off.path, true
 	}
-	if rx := s.recvs[id]; rx != nil && rx.state == "done" {
+	if rx := s.recvs[id]; rx != nil && rx.state == "done" && !rx.withdrawn {
 		return rx.final, true
 	}
 	return "", false
@@ -366,9 +367,14 @@ func (c *Client) SaveCachedFile(id string) (any, error) {
 	return map[string]any{"path": dst}, nil
 }
 
-// CancelFile cancels an incoming download, or all outgoing sends of a file.
+// CancelFile withdraws a file we offered (telling every recipient), or
+// cancels an incoming download.
 func (c *Client) CancelFile(id string) error {
 	return c.withSession(func(s *session) error {
+		if off := s.offers[id]; off != nil {
+			c.withdrawLocked(s, off)
+			return nil
+		}
 		if rx := s.recvs[id]; rx != nil && rx.state != "done" && rx.state != "failed" {
 			c.sendCtlLocked(s, rx.offer.from, fileCtl{Op: "cancel", ID: id, Reason: "cancelled by receiver"})
 			c.failRecvLocked(s, rx, "cancelled")
@@ -380,12 +386,25 @@ func (c *Client) CancelFile(id string) error {
 				delete(s.sends, k)
 			}
 		}
-		if off := s.offers[id]; off != nil {
-			delete(s.offers, id)
-			os.Remove(off.path)
-		}
 		return nil
 	})
+}
+
+// withdrawLocked stops all transfers of an offer, deletes our copy and tells
+// everyone it was offered to (end-to-end encrypted, like all file control).
+func (c *Client) withdrawLocked(s *session, off *outFile) {
+	for k, x := range s.sends {
+		if x.id == off.ID {
+			x.stop()
+			delete(s.sends, k)
+		}
+	}
+	for to := range off.recips {
+		c.sendCtlLocked(s, to, fileCtl{Op: "withdraw", ID: off.ID})
+	}
+	delete(s.offers, off.ID)
+	os.Remove(off.path)
+	c.emitFile(map[string]any{"id": off.ID, "dir": "out", "state": "withdrawn", "name": off.Name})
 }
 
 // DownloadedPath returns where a finished download was saved.
@@ -494,6 +513,31 @@ func (c *Client) handleFileCtlLocked(s *session, fc proto.FileCtl) {
 		case x.ackCh <- struct{}{}:
 		default:
 		}
+	case "withdraw":
+		ro := s.remoteOffers[m.ID]
+		if ro == nil || ro.from != fc.From {
+			return
+		}
+		delete(s.remoteOffers, m.ID)
+		kept := false
+		if rx := s.recvs[m.ID]; rx != nil {
+			switch {
+			case rx.state == "done" && rx.cache:
+				os.Remove(rx.final) // auto-loaded preview: remove it
+				kept = rx.saved != ""
+			case rx.state == "done":
+				kept = true // the user already downloaded it; that copy is theirs
+			case rx.f != nil:
+				rx.f.Close()
+				os.Remove(rx.part)
+				rx.f = nil
+			}
+			rx.withdrawn = true
+			if !kept {
+				rx.state = "withdrawn"
+			}
+		}
+		c.emitFile(map[string]any{"id": m.ID, "dir": "in", "state": "withdrawn", "name": ro.Name, "kept": kept})
 	case "cancel":
 		if rx := s.recvs[m.ID]; rx != nil && rx.offer.from == fc.From && (rx.state == "requesting" || rx.state == "downloading") {
 			c.failRecvLocked(s, rx, m.Reason)
@@ -564,6 +608,12 @@ func (c *Client) finishRecvLocked(s *session, rx *recvXfer) {
 		}
 		c.mu.Lock()
 		defer c.mu.Unlock()
+		if rx.withdrawn { // withdrawn by the sender while we were verifying
+			if ok {
+				os.Remove(rx.final)
+			}
+			return
+		}
 		if !ok {
 			rx.state = "failed"
 			msg := "checksum mismatch"
