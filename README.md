@@ -1,4 +1,4 @@
-# SecureSpeak 3.1
+# SecureSpeak 3.2
 
 A TeamSpeak-style voice and text server with end-to-end encryption. There are no
 accounts: you pick a nickname and connect. The server relays encrypted packets
@@ -9,6 +9,14 @@ and can never hear, read or fake anything.
 | Client | Windows 10/11 | `SecureSpeak-Setup-<version>.exe` installer (or the portable exe) |
 | Client | Ubuntu, Linux Mint, Debian (amd64/arm64) | `linux-client/securespeak_3.0.0_amd64.deb`, or the portable binary + `install-client.sh` |
 | Server | Linux (amd64/arm64) | `linux-server/securespeak-server` + `install-server.sh` |
+
+## What's new in 3.2
+
+- **Automatic updates.** SecureSpeak checks GitHub for a new release when it starts and every 6 hours. When there is one, a notice offers **Install and restart**. SecureSpeak then closes, installs the update and opens again.
+- **About SecureSpeak** (*Settings → About SecureSpeak*) shows your version and checks for updates as soon as you open it, the way Chrome and Brave do. It also shows what's new in the latest release. You can switch automatic checks off there.
+  - **Checked before installing:** every download is checked against the release's `SHA256SUMS` (and the SHA-256 that GitHub reports for the file). Nothing is replaced if they don't match.
+  - **How it installs:** the Windows setup runs silently, the portable exe and the `~/.local` Linux binary are swapped in place, and the `.deb` is installed with `pkexec` (you're asked for your password).
+- **Quit button.** The ⏻ button at the top right (or **Ctrl+Q**) disconnects, closes the window and stops SecureSpeak.
 
 ## What's new in 3.1
 
@@ -73,7 +81,7 @@ Download **`SecureSpeak-Setup-<version>.exe`** from the
 [Releases](https://github.com/jmsuos/SecureSpeak/releases) page and run it.
 - **Where it installs:** in your user profile (`%LOCALAPPDATA%\Programs\SecureSpeak`), with no administrator rights needed. Choose "Install for all users" in the first dialog to use Program Files instead.
 - **What it adds:** a Start menu entry and an entry in *Settings → Apps*. A desktop icon and starting SecureSpeak when you sign in are optional.
-- **Updating:** run the newer setup. It closes SecureSpeak and keeps all settings.
+- **Updating:** SecureSpeak updates itself (*Settings → About SecureSpeak*). Running a newer setup by hand also works. Either way your settings are kept.
 - **Uninstalling:** this asks whether to also delete your settings and identity key. Keep them if you want to keep your identity and server roles.
 - **Portable version:** `SecureSpeak-<version>-portable.exe` runs without installing.
 

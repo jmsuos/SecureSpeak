@@ -101,6 +101,9 @@ jobs:
           go-version-file: go.mod
           cache: false # no third-party modules, nothing to cache
 
+      - name: Updater tests on Windows (swapping a running exe)
+        run: go test -count=1 ./internal/update/
+
       - name: Embed icon, version info and manifest
         run: |
           go install github.com/tc-hib/go-winres@latest
@@ -146,7 +149,8 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw "ISCC failed" }
           Get-ChildItem dist\installer | Out-Host
 
-      - name: Smoke-test installer (install, run, single instance, uninstall)
+      - name: Smoke-test installer (install, run, single instance, update, uninstall)
+        timeout-minutes: 10
         run: |
           $setup = (Get-ChildItem dist\installer\SecureSpeak-Setup-*.exe | Select-Object -First 1).FullName
           $p = Start-Process $setup -ArgumentList '/VERYSILENT','/SUPPRESSMSGBOXES','/CURRENTUSER','/NORESTART','/LOG=install.log' -Wait -PassThru
@@ -178,13 +182,35 @@ jobs:
           if (-not (Get-Process -Id $app.Id -ErrorAction SilentlyContinue)) { throw "first instance died" }
           Write-Host "single instance OK"
 
+          # in-app update: SecureSpeak exits, then runs the new setup with
+          # /SILENT /UPDATE=1, which must start SecureSpeak again afterwards
+          Stop-Process -Id $app.Id -Force
+          # (not -Wait: that would also wait for the SecureSpeak it starts)
+          $p = Start-Process $setup -ArgumentList '/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART','/UPDATE=1','/LOG=update.log' -PassThru
+          if (-not $p.WaitForExit(180000)) { Get-Content update.log; throw "update setup did not finish" }
+          if ($p.ExitCode -ne 0) { Get-Content update.log; throw "update setup exit code $($p.ExitCode)" }
+          $restarted = $null
+          for ($i = 0; $i -lt 30 -and -not $restarted; $i++) {
+            Start-Sleep -Milliseconds 500
+            $restarted = Get-CimInstance Win32_Process -Filter "Name='SecureSpeak.exe'" | Where-Object { $_.CommandLine -like '*-after-update*' }
+          }
+          if (-not $restarted) { Get-Content update.log; throw "setup did not restart SecureSpeak after an in-app update" }
+          Write-Host "update restart OK: $($restarted.CommandLine)"
+          $restarted | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
+          Get-Process msedge -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
+
+          # a normal silent install must NOT start the app
+          $p = Start-Process $setup -ArgumentList '/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART' -Wait -PassThru
+          Start-Sleep 3
+          if (Get-Process SecureSpeak -ErrorAction SilentlyContinue) { throw "plain silent install started SecureSpeak" }
+
           # silent uninstall (also stops the running app)
           $p = Start-Process "$dir\unins000.exe" -ArgumentList '/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART' -Wait -PassThru
           Start-Sleep 3
           if (Test-Path $exe) { throw "uninstall left SecureSpeak.exe behind" }
           if (Test-Path $lnk) { throw "uninstall left the shortcut behind" }
           if (Get-Process -Id $app.Id -ErrorAction SilentlyContinue) { throw "app still running after uninstall" }
-          Write-Host "::notice title=Installer smoke test::install, launch, single-instance and uninstall all passed"
+          Write-Host "::notice title=Installer smoke test::install, launch, single-instance, update-restart and uninstall all passed"
 
       - uses: actions/upload-artifact@v4
         with:
