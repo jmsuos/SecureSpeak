@@ -31,6 +31,7 @@ const (
 
 	FrameJSON  byte = 0
 	FrameVoice byte = 1
+	FrameVideo byte = 2 // screen share: [signed inner] up, [sender u32][signed inner] down
 
 	UDPHello    byte = 1
 	UDPHelloAck byte = 2
@@ -44,6 +45,10 @@ const (
 	// Voice codecs (encoding/decoding happens in the client UI layer).
 	CodecADPCM byte = 1 // 24 kHz IMA-ADPCM fallback
 	CodecOpus  byte = 2 // 48 kHz Opus, 20 ms frames
+
+	// Screen share video codecs (WebCodecs in the client UI).
+	CodecVP8 byte = 10
+	CodecVP9 byte = 11
 
 	// Voice routing modes (first byte of a client voice payload).
 	VoiceChannel byte = 0 // [0][signed inner]

@@ -16,6 +16,7 @@ import (
 	"fmt"
 	"log"
 	"net"
+	"os"
 	"sort"
 	"strconv"
 	"strings"
@@ -54,6 +55,7 @@ type Peer struct {
 	pairwise    []byte
 	keys        []*e2e.SenderKey // most recent last
 	wins        map[byte]*proto.ReplayWindow
+	vwins       map[byte]*proto.ReplayWindow // video uses its own replay window
 	lastVoice   time.Time
 	lastWhisper time.Time
 	volume      float64
@@ -88,6 +90,10 @@ func (p *Peer) addKey(k *e2e.SenderKey) {
 		p.wins = map[byte]*proto.ReplayWindow{}
 	}
 	p.wins[k.ID] = &proto.ReplayWindow{}
+	if p.vwins == nil {
+		p.vwins = map[byte]*proto.ReplayWindow{}
+	}
+	p.vwins[k.ID] = &proto.ReplayWindow{}
 }
 
 type outFrame struct {
@@ -109,6 +115,7 @@ type session struct {
 	welcomeMsg   string
 	maxClients   int
 	allowWhisper bool
+	hasPw        bool
 	channels     map[uint32]proto.ChannelInfo
 	roles        []proto.RoleInfo
 	peers        map[uint32]*Peer
@@ -220,6 +227,7 @@ type Client struct {
 
 	muted, deaf, away bool
 	awayMsg           string
+	sharing           bool
 
 	avatar     []byte
 	avatarHash string
@@ -246,6 +254,7 @@ func New(store *Store, em Emitter) (*Client, error) {
 		id:     id,
 		closed: make(chan struct{}),
 	}
+	os.RemoveAll(store.CacheDir()) // previews from earlier sessions
 	if av := store.LoadAvatar(); validImage(av) {
 		c.avatar, c.avatarHash = av, imageHash(av)
 	}
@@ -408,7 +417,7 @@ func (c *Client) connect(host string, port int, nick, serverPw, trustFP string) 
 		addr: addr, host: host, certFP: fp, conn: tc,
 		out: make(chan outFrame, 1024), done: make(chan struct{}),
 		myID: w.YourID, keys: keys, serverName: w.ServerName, welcomeMsg: w.WelcomeMsg,
-		maxClients: w.MaxClients, allowWhisper: w.Whisper, roles: w.Roles,
+		maxClients: w.MaxClients, allowWhisper: w.Whisper, roles: w.Roles, hasPw: w.HasPw,
 		channels: map[uint32]proto.ChannelInfo{}, peers: map[uint32]*Peer{},
 		offers: map[string]*outFile{}, sends: map[string]*sendXfer{},
 		recvs: map[string]*recvXfer{}, remoteOffers: map[string]*remoteOffer{},
@@ -432,6 +441,7 @@ func (c *Client) connect(host string, port int, nick, serverPw, trustFP string) 
 	c.cfg.Nickname = nick
 	c.cfg.LastHost, c.cfg.LastPort = host, port
 	c.saveLocked()
+	c.sharing = false // a new connection never starts out sharing
 	if c.muted || c.deaf || c.away {
 		s.send(proto.TStatus, proto.Status{Muted: c.muted, Deaf: c.deaf, Away: c.away, AwayMsg: c.awayMsg})
 	}
@@ -584,6 +594,10 @@ func (c *Client) readLoop(s *session, br *bufio.Reader) {
 			c.handleVoice(s, payload)
 			continue
 		}
+		if kind == proto.FrameVideo {
+			c.handleVideo(s, payload)
+			continue
+		}
 		var m proto.Message
 		if json.Unmarshal(payload, &m) != nil {
 			continue
@@ -728,7 +742,12 @@ func (c *Client) handleMsg(s *session, m proto.Message) {
 		}
 	case proto.TServerUpdate:
 		if se, ok := unmarshal[proto.ServerEdit](m); ok {
-			s.serverName, s.welcomeMsg = se.Name, se.WelcomeMsg
+			s.serverName, s.welcomeMsg, s.hasPw = se.Name, se.WelcomeMsg, se.HasPw
+		}
+	case proto.TKeyframeReq:
+		stateChanged = false
+		if kr, ok := unmarshal[proto.KeyframeReq](m); ok && c.sharing {
+			c.em.Emit("keyframe", map[string]any{"from": kr.From})
 		}
 	case proto.TKeyDist:
 		stateChanged = false
@@ -958,11 +977,29 @@ func (c *Client) SetStatus(muted, deaf, away *bool, awayMsg *string) {
 	if awayMsg != nil {
 		c.awayMsg = *awayMsg
 	}
-	if c.sess != nil {
-		c.sess.send(proto.TStatus, proto.Status{Muted: c.muted, Deaf: c.deaf, Away: c.away, AwayMsg: c.awayMsg})
-	}
+	c.sendStatusLocked()
 	c.mu.Unlock()
 	c.emitState()
+}
+
+func (c *Client) sendStatusLocked() {
+	if c.sess != nil {
+		c.sess.send(proto.TStatus, proto.Status{Muted: c.muted, Deaf: c.deaf, Away: c.away, AwayMsg: c.awayMsg, Sharing: c.sharing})
+	}
+}
+
+// SetSharing announces that our screen share started or stopped.
+func (c *Client) SetSharing(on bool) error {
+	c.mu.Lock()
+	if c.sess == nil {
+		c.mu.Unlock()
+		return errors.New("not connected")
+	}
+	c.sharing = on
+	c.sendStatusLocked()
+	c.mu.Unlock()
+	c.emitState()
+	return nil
 }
 
 // ---- UDP -------------------------------------------------------------------------
@@ -1360,4 +1397,73 @@ func nonNil(v []uint32) []uint32 {
 		return []uint32{}
 	}
 	return v
+}
+
+// ---- screen share ------------------------------------------------------------------
+
+// HandleVideoFrame encrypts and signs one encoded screen share frame from the
+// UI and sends it to the server, which forwards it to our viewers.
+func (c *Client) HandleVideoFrame(flags, codec byte, payload []byte) {
+	if len(payload) == 0 || len(payload) > proto.MaxFrameSize-256 {
+		return
+	}
+	c.mu.Lock()
+	s := c.sess
+	if s == nil || !c.sharing {
+		c.mu.Unlock()
+		return
+	}
+	key := s.senderKey
+	s.voiceCtr++ // shared counter: nonces stay unique per key across voice and video
+	ctr := s.voiceCtr
+	myID, id := s.myID, c.id
+	c.mu.Unlock()
+	plain := make([]byte, 0, 2+len(payload))
+	plain = append(plain, codec, flags)
+	plain = append(plain, payload...)
+	s.sendFrame(proto.FrameVideo, e2e.SignVoice(id, myID, key.SealVoice(myID, ctr, plain)))
+}
+
+func (c *Client) handleVideo(s *session, payload []byte) {
+	if len(payload) < 4 {
+		return
+	}
+	sender := binary.BigEndian.Uint32(payload)
+	c.mu.Lock()
+	p := s.peers[sender]
+	if c.sess != s || p == nil || !p.Valid || p.Info.Channel != s.me.Channel {
+		c.mu.Unlock()
+		return
+	}
+	idPub := p.Info.IDPub
+	c.mu.Unlock()
+	inner, ok := e2e.VerifyVoice(idPub, sender, payload[4:])
+	if !ok {
+		return
+	}
+	keyID, ctr, ok := e2e.ParseVoice(inner)
+	if !ok {
+		return
+	}
+	c.mu.Lock()
+	k := p.key(keyID)
+	if k == nil || s.peers[sender] != p {
+		c.mu.Unlock()
+		return
+	}
+	pt, err := k.OpenVoice(sender, inner)
+	if err != nil || len(pt) < 3 || (pt[0] != proto.CodecVP8 && pt[0] != proto.CodecVP9) || !p.vwins[keyID].Check(ctr) {
+		c.mu.Unlock()
+		return
+	}
+	c.mu.Unlock()
+	if f := c.voiceOut.Load(); f != nil {
+		frame := make([]byte, 7+len(pt)-2)
+		frame[0] = 2
+		binary.BigEndian.PutUint32(frame[1:], sender)
+		frame[5] = pt[1] // flags (bit 0 = keyframe)
+		frame[6] = pt[0] // codec
+		copy(frame[7:], pt[2:])
+		(*f)(frame)
+	}
 }

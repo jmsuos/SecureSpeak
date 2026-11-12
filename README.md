@@ -1,4 +1,4 @@
-# SecureSpeak 3.0
+# SecureSpeak 3.1
 
 A TeamSpeak-style voice and text server with end-to-end encryption. There are no
 accounts: you pick a nickname and connect. The server relays encrypted packets
@@ -10,10 +10,17 @@ and can never hear, read or fake anything.
 | Client | Ubuntu, Linux Mint, Debian (amd64/arm64) | `linux-client/securespeak_3.0.0_amd64.deb`, or the portable binary + `install-client.sh` |
 | Server | Linux (amd64/arm64) | `linux-server/securespeak-server` + `install-server.sh` |
 
+## What's new in 3.1
+
+- **Screen share:** click *Share screen* to share a screen or window with your channel. Others click the red **LIVE** badge (or *Watch screen*) to watch. Video is VP9 (or VP8), up to 1080p at 15 fps, and **end-to-end encrypted and signed** like voice. The server only forwards it to the people actually watching and can't see it.
+- **Paste and drop files:** press **Ctrl+V** to send a copied screenshot or file, or drop files anywhere on the window. Pasted screenshots get a proper name (`Screenshot 2026-11-12 21.02.32.png`).
+- **Image and video previews:** images (up to 16 MB) and MP4/WebM videos (up to 64 MB) load automatically and show inline in the chat. Click an image for the full-size view. Previews are kept in a private cache until you click **Save**. You can switch this off in *Settings → Profile & security*.
+- **Server password from the app:** *Admin → Server password…* sets, changes or removes it, using the new permission "Change the server password". People who are connected stay connected.
+
 ## What's new in 3.0
 
 - **Owner key instead of an admin password.** On first start the server prints a one-time owner key. Whoever redeems it becomes the permanent **server owner**. From then on they're recognized automatically by their identity key, with no password to type.
-- **Roles and permissions** like TeamSpeak's server groups. Create as many roles as you like, each with a color, a **power** level and any of 22 permissions. Everyone gets the editable default role "Guest". "Server Admin" (power 100) and "Moderator" (power 50) are created for you.
+- **Roles and permissions** like TeamSpeak's server groups. Create as many roles as you like, each with a color, a **power** level and any of 24 permissions. Everyone gets the editable default role "Guest". "Server Admin" (power 100) and "Moderator" (power 50) are created for you.
 - **User actions from the right-click menu:** Roles…, move, server-mute, kick from channel, kick from server and ban. Each one is shown only when you have the permission and the target has less power than you.
 - **Privilege keys** hand out any role. You create one, give it to someone, and it works once.
 - **Owner protection.** Nobody but the owner can kick, ban, mute, move or change the roles of the owner, whatever roles or permissions they have.
@@ -44,6 +51,12 @@ Open **TCP and UDP 9987**. If UDP is blocked, voice falls back to TCP automatica
 override role permissions. Useful flags are `-fingerprint`, `-owner-token`,
 `-reset-owner` (if the owner lost their identity: it removes the owner and
 prints a new owner key), `-set-server-password` and `-clear-server-password`.
+
+**Upgrading from 3.0:** 3.1 is compatible with 3.0 apps and servers. Screen
+share and changing the password from the app need the server updated to 3.1
+as well. On first start, 3.1 adds the new permissions to existing roles:
+"Share screen" for roles that can speak, and "Change the server password" for
+roles that can edit the server.
 
 **Upgrading from 2.x:** clients and servers must both be 3.0, because the
 protocol now authenticates identities. The old admin password no longer
@@ -121,9 +134,9 @@ Right-click a user and choose **Roles…** to assign roles directly.
 
 The permissions are:
 - **Channels:** create temporary or permanent channels, edit or delete any channel, join any channel (ignoring password and limit)
-- **Voice & chat:** speak, whisper, channel/server/private chat, poke, send files
+- **Voice & chat:** speak, whisper, share screen, channel/server/private chat, poke, send files
 - **Moderation:** move, kick from channel, kick from server, server-mute, ban, view ban list and unban
-- **Administration:** assign roles, manage roles, create privilege keys, edit server name and welcome message
+- **Administration:** assign roles, manage roles, create privilege keys, edit server name and welcome message, change the server password
 
 The rules the server enforces:
 - You can only act on users whose power is **lower** than yours.
@@ -147,12 +160,15 @@ nickname shows up with a different key.
 | Voice | Opus frames are encrypted with **AES-256-GCM** using a random per-speaker key. That key goes only to channel members and is **rotated when anyone leaves**. Whisper uses a separate key sent only to the whisper targets, and a new one whenever the target set changes. |
 | Voice authenticity | Every packet is **Ed25519-signed** over the sender id and ciphertext, and checked before decryption. The whisper flag is inside the encrypted part, so the server can't flip it. |
 | Text, pokes, avatars | Each message gets its own random AES-256 key, wrapped per recipient and bound to the ciphertext, sender and recipient |
+| Screen share | VP9/VP8 frames are encrypted with the speaker's AES-256-GCM channel key and **Ed25519-signed**, so only channel members can decrypt them and nobody can inject frames. They are relayed only to subscribed viewers in the same channel. |
+| Previews | Served locally only if the content sniffs as PNG, JPEG, GIF, WebP, BMP, MP4 or WebM, with a sandboxing Content-Security-Policy. HTML and SVG never render. |
 | Files | A random AES-256-GCM key per transfer *and* recipient, with chunk nonces bound to the transfer id. Flow control keeps at most 1.5 MB in flight. A SHA-256 check runs at the end. Names are sanitized, so paths and reserved names are stripped. |
 | Transport | TLS 1.3 with the certificate pinned on first use. UDP datagrams carry a second AES-256-GCM layer with replay protection. |
 | Local UI | The UI listens only on 127.0.0.1 with a random token, a strict Content-Security-Policy, Host and Origin checks, and no remote content |
 
 **What the server can see:** IP addresses, nicknames, public keys, channel
-membership, who talks or whispers to whom and when, and file sizes. It can't
+membership, who talks or whispers to whom and when, who shares and watches a
+screen, and file and frame sizes. It can't
 see any voice, text, picture or file content.
 
 **Verify fingerprints once** with the people you talk to, in person or by
