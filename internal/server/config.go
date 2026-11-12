@@ -36,6 +36,7 @@ type Config struct {
 	AllowTempChannels  bool   `json:"allow_temp_channels"`
 	AllowWhisper       bool   `json:"allow_whisper"`
 	AllowFiles         bool   `json:"allow_file_transfer"`
+	RolesSchema        int    `json:"roles_schema,omitempty"`
 }
 
 func DefaultConfig() *Config {

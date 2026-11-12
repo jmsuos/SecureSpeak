@@ -11,6 +11,7 @@ import (
 	"io/fs"
 	"net"
 	"net/http"
+	"os"
 	"strconv"
 	"strings"
 	"sync"
@@ -26,7 +27,13 @@ type Handler func(cmd string, args json.RawMessage) (any, error)
 type VoiceIn func(mode, codec, flags byte, payload []byte)
 
 // Uploader stores an uploaded file and offers it in the chat.
-type Uploader func(kind string, target uint32, name string, body io.Reader) error
+type Uploader func(kind string, target uint32, name, mime string, body io.Reader) error
+
+// VideoIn receives encoded screen share frames from the UI.
+type VideoIn func(flags, codec byte, payload []byte)
+
+// MediaSource resolves a file id to a local path for previews.
+type MediaSource func(id string) (string, bool)
 
 // AvatarSource returns the picture of a user.
 type AvatarSource func(id uint32) []byte
@@ -42,6 +49,8 @@ type Bridge struct {
 	idleAt  time.Time
 
 	VoiceIn  VoiceIn
+	VideoIn  VideoIn
+	Media    MediaSource
 	Upload   Uploader
 	Avatar   AvatarSource
 	AvatarCT func([]byte) string
@@ -130,6 +139,7 @@ func (b *Bridge) Listen() (string, error) {
 	})
 	mux.HandleFunc("/upload", b.upload)
 	mux.HandleFunc("/avatar", b.avatar)
+	mux.HandleFunc("/media", b.media)
 	srv := &http.Server{Handler: b.guard(mux), ReadHeaderTimeout: 10 * time.Second}
 	go srv.Serve(ln)
 	return "http://" + b.host + "/?token=" + b.Token, nil
@@ -284,6 +294,9 @@ func (b *Bridge) audioWS(w http.ResponseWriter, r *http.Request) {
 		if len(msg) >= 5 && msg[0] == 1 && b.VoiceIn != nil {
 			b.VoiceIn(msg[1], msg[2], msg[3], msg[4:])
 		}
+		if len(msg) >= 4 && msg[0] == 2 && b.VideoIn != nil {
+			b.VideoIn(msg[1], msg[2], msg[3:])
+		}
 	}
 }
 
@@ -295,7 +308,7 @@ func (b *Bridge) upload(w http.ResponseWriter, r *http.Request) {
 	}
 	q := r.URL.Query()
 	target, _ := strconv.ParseUint(q.Get("target"), 10, 32)
-	err := b.Upload(q.Get("kind"), uint32(target), q.Get("name"), r.Body)
+	err := b.Upload(q.Get("kind"), uint32(target), q.Get("name"), q.Get("mime"), r.Body)
 	w.Header().Set("Content-Type", "application/json")
 	out := map[string]any{"ok": err == nil}
 	if err != nil {
@@ -320,4 +333,48 @@ func (b *Bridge) avatar(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "private, max-age=86400")
 	w.Header().Set("X-Content-Type-Options", "nosniff")
 	w.Write(img)
+}
+
+// previewTypes are the only content types served for previews. Anything
+// else (HTML, SVG, scripts...) is refused, so a malicious file can never run
+// in the app's origin.
+var previewTypes = map[string]bool{
+	"image/png": true, "image/jpeg": true, "image/gif": true, "image/webp": true, "image/bmp": true,
+	"video/mp4": true, "video/webm": true,
+}
+
+// media serves a received or sent file for inline preview: GET /media?id=...
+func (b *Bridge) media(w http.ResponseWriter, r *http.Request) {
+	if !b.authorized(r) || b.Media == nil {
+		http.Error(w, "forbidden", http.StatusForbidden)
+		return
+	}
+	path, ok := b.Media(r.URL.Query().Get("id"))
+	if !ok {
+		http.NotFound(w, r)
+		return
+	}
+	f, err := os.Open(path)
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
+	defer f.Close()
+	head := make([]byte, 512)
+	n, _ := io.ReadFull(f, head)
+	ct := http.DetectContentType(head[:n])
+	if !previewTypes[ct] {
+		http.Error(w, "no preview for this file type", http.StatusUnsupportedMediaType)
+		return
+	}
+	st, err := f.Stat()
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
+	w.Header().Set("Content-Type", ct)
+	w.Header().Set("X-Content-Type-Options", "nosniff")
+	w.Header().Set("Content-Security-Policy", "default-src 'none'; sandbox")
+	w.Header().Set("Cache-Control", "private, max-age=3600")
+	http.ServeContent(w, r, "", st.ModTime(), f) // range requests: video seeking
 }

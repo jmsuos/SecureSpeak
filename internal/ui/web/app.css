@@ -47,7 +47,7 @@ svg { display: block; }
 #mic-thresh { position: absolute; top: 0; bottom: 0; width: 2px; background: var(--warn); opacity: .8; }
 
 /* ---- layout ---- */
-main { flex: 1; display: flex; min-height: 0; padding: 10px; gap: 0; }
+main { flex: 1; display: flex; min-height: 0; padding: 10px; gap: 0; position: relative; }
 .pane { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); }
 .tree-pane { width: 42%; min-width: 260px; display: flex; flex-direction: column; min-height: 0; }
 .resizer { width: 10px; cursor: col-resize; }
@@ -282,3 +282,26 @@ table.list td { padding: 6px; border-bottom: 1px solid var(--line); }
 .key-create input { flex: 1; }
 .fp.token { flex: 1; font-size: 15px; letter-spacing: 1px; text-align: center; padding: 10px; user-select: all; }
 table.list .dot { display: inline-block; }
+
+/* ---- v3.1: screen share, media previews, drop ---- */
+.badge.live { background: rgba(242, 85, 90, .18); color: #ff7b7f; }
+.badge.live.click { cursor: pointer; }
+.badge.live.click:hover { background: rgba(242, 85, 90, .32); }
+.tb.share.sharing { background: rgba(242, 85, 90, .16); color: var(--danger); border: 1px solid rgba(242, 85, 90, .4); }
+.stage { position: absolute; inset: 10px; z-index: 20; display: flex; flex-direction: column; background: #07090d; border: 1px solid var(--line); border-radius: var(--radius); overflow: hidden; }
+.stage-bar { display: flex; align-items: center; gap: 10px; padding: 8px 12px; background: var(--panel); border-bottom: 1px solid var(--line); }
+.stage-title { font-weight: 600; }
+.stage-view { flex: 1; min-height: 0; display: grid; place-items: center; position: relative; }
+.stage-view canvas { max-width: 100%; max-height: 100%; width: auto; height: auto; object-fit: contain; background: #000; }
+#stage-wait { position: absolute; }
+.media-thumb { display: block; max-width: min(360px, 100%); max-height: 260px; border-radius: 8px; margin: 8px 0 2px; border: 1px solid var(--line); background: #000; cursor: zoom-in; }
+video.media-thumb { cursor: default; }
+.lightbox { position: fixed; inset: 0; z-index: 80; background: rgba(4, 6, 10, .92); display: flex; flex-direction: column; animation: fade .12s; }
+.lb-bar { display: flex; align-items: center; gap: 8px; padding: 10px 14px; }
+.lb-name { flex: 1; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.lb-media { flex: 1; min-height: 0; display: grid; place-items: center; padding: 0 20px 20px; }
+.lb-media img, .lb-media video { max-width: 100%; max-height: 100%; border-radius: 6px; }
+.drop-overlay { position: fixed; inset: 0; z-index: 90; background: rgba(13, 16, 22, .82); display: grid; place-items: center; pointer-events: none; }
+.drop-box { border: 2px dashed var(--accent); border-radius: 16px; padding: 40px 60px; text-align: center; background: rgba(91, 124, 250, .08); }
+.drop-icon { font-size: 40px; color: var(--accent-2); }
+.drop-text { font-size: 16px; font-weight: 600; margin-top: 6px; }

@@ -13,6 +13,7 @@ const (
 
 	PermVoiceSpeak   = "voice.speak"
 	PermVoiceWhisper = "voice.whisper"
+	PermScreenShare  = "screen.share"
 
 	PermChatChannel = "chat.channel"
 	PermChatServer  = "chat.server"
@@ -27,10 +28,11 @@ const (
 	PermClientMute        = "client.mute"
 	PermBanList           = "ban.list"
 
-	PermRolesAssign  = "roles.assign"
-	PermRolesManage  = "roles.manage"
-	PermTokensCreate = "tokens.create"
-	PermServerEdit   = "server.edit"
+	PermRolesAssign    = "roles.assign"
+	PermRolesManage    = "roles.manage"
+	PermTokensCreate   = "tokens.create"
+	PermServerEdit     = "server.edit"
+	PermServerPassword = "server.password"
 )
 
 // PermInfo describes a permission for the role editor.
@@ -49,6 +51,7 @@ var PermCatalog = []PermInfo{
 	{PermChannelJoinAny, "Channels", "Join any channel (ignore password and user limit)"},
 	{PermVoiceSpeak, "Voice & chat", "Speak"},
 	{PermVoiceWhisper, "Voice & chat", "Whisper"},
+	{PermScreenShare, "Voice & chat", "Share screen"},
 	{PermChatChannel, "Voice & chat", "Channel chat"},
 	{PermChatServer, "Voice & chat", "Server-wide chat"},
 	{PermChatPrivate, "Voice & chat", "Private messages"},
@@ -64,6 +67,7 @@ var PermCatalog = []PermInfo{
 	{PermRolesManage, "Administration", "Create, edit and delete roles"},
 	{PermTokensCreate, "Administration", "Create privilege keys"},
 	{PermServerEdit, "Administration", "Edit server name and welcome message"},
+	{PermServerPassword, "Administration", "Change the server password"},
 }
 
 // PowerOwner is the effective power of the server owner: above every role.
