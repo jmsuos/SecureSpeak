@@ -48,6 +48,11 @@ const P = {
   image: '<rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="M21 15l-5-5L5 21"/>',
   monitor: '<rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/>',
   expand: '<path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7"/>',
+  power: '<path d="M18.4 6.6a9 9 0 1 1-12.8 0M12 2v10"/>',
+  check: '<path d="M20 6L9 17l-5-5"/>',
+  arrowUp: '<path d="M12 19V5M5 12l7-7 7 7"/>',
+  external: '<path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6M15 3h6v6M10 14L21 3"/>',
+  info: '<circle cx="12" cy="12" r="10"/><path d="M12 16v-4M12 8h.01"/>',
   globe: '<circle cx="12" cy="12" r="10"/><path d="M2 12h20M12 2a15 15 0 0 1 0 20 15 15 0 0 1 0-20z"/>',
 };
 function icon(name) {
@@ -158,6 +163,8 @@ function startEvents() {
 function handle({ t, d }) {
   switch (t) {
     case 'state': onState(d); break;
+    case 'update': onUpdate(d); break;
+    case 'closing': onClosing(d); break;
     case 'talking': talking = new Set(d.ids); whispering = new Set(d.whisper); selfWhisper = d.selfWhisper; updateTalking(); break;
     case 'keys': AE.pttKey = d.ptt; AE.whisperKey = d.whisper; break;
     case 'sound': AE.sound(d); break;
@@ -248,6 +255,8 @@ function renderToolbar() {
   $('btn-admin').disabled = !c;
   $('btn-admin').title = staff ? 'Server administration' : 'Redeem a privilege key';
   btnContent($('btn-settings'), 'sliders', 'Settings');
+  if (updateAvailable()) $('btn-settings').append(el('span', { class: 'update-dot', title: 'Update available' }));
+  $('btn-quit').replaceChildren(icon('power'));
   $('btn-new-channel').replaceChildren(icon('folderPlus'));
   $('btn-new-channel').disabled = !c;
   $('server-title').textContent = c ? S.serverName : (S.connecting ? 'Connecting…' : 'Not connected');
@@ -1077,15 +1086,16 @@ async function openSettings(initialTab) {
   let lvlRefs = null;
 
   const render = () => {
-    tabsBar.replaceChildren(...[['audio', 'Audio & voice'], ['whisper', 'Whisper'], ['general', 'Profile & security']].map(([k, l]) => {
-      const b = el('button', { class: k === tab ? 'on' : '', text: l });
-      b.onclick = () => { tab = k; render(); };
+    tabsBar.replaceChildren(...[['audio', 'Audio & voice'], ['whisper', 'Whisper'], ['general', 'Profile & security'], ['about', 'About SecureSpeak']].map(([k, l]) => {
+      const b = el('button', { class: (k === tab ? 'on' : '') + (k === 'about' && updateAvailable() ? ' has-update' : ''), text: l });
+      b.onclick = () => { tab = k; if (k === 'about') checkForUpdates(); render(); };
       return b;
     }));
     view.replaceChildren();
     lvlRefs = null;
     if (tab === 'audio') renderAudioTab();
     else if (tab === 'whisper') renderWhisperTab(view);
+    else if (tab === 'about') renderAboutTab(view);
     else renderGeneralTab();
   };
 
@@ -1195,12 +1205,13 @@ async function openSettings(initialTab) {
       el('div', { class: 'actions' }, el('button', {
         class: 'btn danger', disabled: S.connected, title: S.connected ? 'Disconnect first' : '',
         onclick: async () => { if (await confirmModal('New identity', 'Generate a new identity key? People who verified you will see you as unverified.', 'Generate', true)) act('new_identity'); },
-      }, icon('key'), 'Generate new identity')),
-      el('div', { class: 'hint', style: 'margin-top:14px', text: 'SecureSpeak ' + (S.version || 'dev') + ' · ' + S.platform }));
+      }, icon('key'), 'Generate new identity')));
   }
 
   settingsView = {
     refresh: () => { if (!document.activeElement || document.activeElement.type !== 'range') render(); },
+    update: () => { if (tab === 'about') render(); else tabsBar.querySelector('button:last-child')?.classList.toggle('has-update', updateAvailable()); },
+    get aboutOpen() { return tab === 'about'; },
     level: (l) => { if (lvlRefs) { lvlRefs.lvl.style.width = dbToPct(l.db) + '%'; lvlRefs.lvl.classList.toggle('tx', l.tx); } },
   };
   const onDev = () => refreshDevices().then(() => settingsView && settingsView.refresh());
@@ -1215,9 +1226,145 @@ async function openSettings(initialTab) {
     },
   });
   h.ov.querySelector('.body').style.paddingTop = '0';
+  if (tab === 'about') checkForUpdates();
   render();
   // device labels become available once the microphone permission is granted
   AE.updateMic().then(() => refreshDevices()).then(() => settingsView && settingsView.refresh());
+}
+
+// ---------------------------------------------------------------- updates & quitting
+let U = null; // update state from the core
+let updateToastFor = '';
+
+function updateAvailable() { return !!(U && (U.status === 'available' || U.status === 'downloading' || U.status === 'installing') && U.latest); }
+
+function checkForUpdates() {
+  if (U && ['checking', 'downloading', 'installing', 'restarting'].includes(U.status)) return;
+  act('update_check');
+}
+
+function onUpdate(d) {
+  const first = !U;
+  U = d;
+  if (first && d.justUpdated) toast('SecureSpeak was updated to version ' + d.current + '.', 'ok');
+  if (d.status === 'available' && d.latest && updateToastFor !== d.latest && !(settingsView && settingsView.aboutOpen)) {
+    updateToastFor = d.latest;
+    actionToast('SecureSpeak ' + d.latest + ' is available.', [
+      { label: d.canInstall ? 'Install and restart' : 'View', primary: true, fn: () => (d.canInstall ? installUpdate() : openSettings('about')) },
+      { label: 'Details', fn: () => openSettings('about') },
+    ]);
+  }
+  if (d.status === 'error' && /^Update failed/.test(d.error || '') && !(settingsView && settingsView.aboutOpen)) toast(d.error, 'error');
+  if (S) renderToolbar();
+  if (settingsView && settingsView.update) settingsView.update();
+}
+
+async function installUpdate() {
+  if (!U || !U.canInstall) return;
+  if (S && S.connected && !(await confirmModal('Install update', 'SecureSpeak will close, install version ' + U.latest + ' and start again. You will be disconnected from ' + (S.serverName || 'the server') + ' for a moment.', 'Install and restart'))) return;
+  if (!(settingsView && settingsView.aboutOpen)) openSettings('about');
+  act('update_install');
+}
+
+async function quitApp() {
+  if (S && S.connected && !(await confirmModal('Quit SecureSpeak', 'Disconnect from ' + (S.serverName || 'the server') + ' and close SecureSpeak?', 'Quit', true))) return;
+  try { await api('quit'); } catch (e) { /* core already gone */ }
+  onClosing({});
+}
+
+let closingShown = false;
+function onClosing(d) {
+  if (closingShown) return;
+  closingShown = true;
+  document.body.append(el('div', { class: 'closing' },
+    el('div', { class: 'closing-box' },
+      d.restart ? el('div', { class: 'spinner big' }) : icon('power'),
+      el('div', { class: 'closing-title', text: d.restart ? 'Updating SecureSpeak…' : 'SecureSpeak has been closed' }),
+      el('div', { class: 'hint', text: d.restart ? 'SecureSpeak will open again in a moment.' : 'You can close this window.' }))));
+  setTimeout(() => window.close(), d.restart ? 400 : 150);
+}
+
+function actionToast(text, buttons) {
+  const t = el('div', { class: 'toast action' });
+  const close = () => t.remove();
+  t.append(el('span', { class: 't-text' }, icon('arrowUp'), el('span', { text })),
+    el('div', { class: 't-actions' }, ...buttons.map((b) => el('button', { class: 'btn' + (b.primary ? ' primary' : ''), type: 'button', text: b.label, onclick: () => { close(); b.fn(); } })),
+      el('button', { class: 'icon-btn', type: 'button', title: 'Later', onclick: close }, icon('x'))));
+  $('toasts').append(t);
+}
+
+// GitHub release notes are Markdown; show them as tidy plain text.
+function plainNotes(md) {
+  return md.replace(/\r/g, '').split('\n')
+    .filter((l) => !/^\*\*Full Changelog\*\*/i.test(l.trim()))
+    .map((l) => l.replace(/^\s*#{1,6}\s*/, '').replace(/^(\s*)[*-]\s+/, '$1• ')
+      .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1').replace(/\*\*([^*]+)\*\*/g, '$1').replace(/`([^`]+)`/g, '$1')
+      .replace(/ by @[\w-]+ in https:\/\/github\.com\/\S+/g, '').replace(/ in https:\/\/github\.com\/\S+/g, ''))
+    .join('\n').replace(/\n{3,}/g, '\n\n').trim().slice(0, 3000);
+}
+
+function fmtDate(iso) {
+  if (!iso) return '';
+  try { return new Date(iso).toLocaleDateString(undefined, { year: 'numeric', month: 'long', day: 'numeric' }); } catch (e) { return ''; }
+}
+
+function renderAboutTab(view) {
+  const u = U || { status: 'checking', current: S.version };
+  const kindName = { installer: 'installed', portable: 'portable', deb: '.deb package', binary: 'user install', manual: '' }[u.kind] || '';
+  const plat = { windows: 'Windows', linux: 'Linux', darwin: 'macOS' }[S.platform] || S.platform;
+  let ic, title, sub = null, action = null, bar = null, tone = '';
+  switch (u.status) {
+    case 'checking': case 'idle':
+      ic = el('div', { class: 'spinner' }); title = 'Checking for updates…'; break;
+    case 'uptodate':
+      ic = icon('check'); tone = 'ok'; title = 'SecureSpeak is up to date'; break;
+    case 'available':
+      ic = icon('arrowUp'); tone = 'new'; title = 'Version ' + u.latest + ' is available';
+      sub = u.published ? 'Released ' + fmtDate(u.published) : null;
+      action = u.canInstall
+        ? el('button', { class: 'btn primary', type: 'button', onclick: installUpdate }, icon('download'), 'Install and restart')
+        : el('button', { class: 'btn', type: 'button', onclick: () => act('open_url', { url: u.url }) }, icon('globe'), 'Download');
+      break;
+    case 'downloading':
+      ic = el('div', { class: 'spinner' }); title = 'Downloading update… ' + Math.round((u.progress || 0) * 100) + '%';
+      bar = el('div', { class: 'upd-bar' }, el('div', { style: 'width:' + Math.round((u.progress || 0) * 100) + '%' })); break;
+    case 'installing':
+      ic = el('div', { class: 'spinner' }); title = 'Installing update…';
+      sub = u.kind === 'deb' ? 'Enter your password in the dialog that opens to install the new package.' : 'Checking the download and preparing the update.'; break;
+    case 'restarting':
+      ic = el('div', { class: 'spinner' }); title = 'Restarting SecureSpeak…'; break;
+    case 'dev':
+      ic = icon('info'); title = 'Development build';
+      sub = 'Automatic updates are off for builds without a release version.' + (u.latest ? ' The latest release is ' + u.latest + '.' : '');
+      break;
+    default: // error
+      ic = icon('alert'); tone = 'err'; title = u.error || 'Could not check for updates';
+      action = el('button', { class: 'btn', type: 'button', onclick: () => act('update_check') }, 'Try again');
+      if (u.latest && u.canInstall && /^Update failed/.test(u.error || '')) action = el('button', { class: 'btn', type: 'button', onclick: () => act('update_install') }, 'Try again');
+  }
+  const notes = u.status === 'available' && u.notes ? plainNotes(u.notes) : '';
+  add(view,
+    el('div', { class: 'about-card' },
+      el('div', { class: 'about-head' }, el('span', { class: 'logo big' }, icon('lock')), el('div', {}, el('div', { class: 'about-name', text: 'SecureSpeak' }), el('div', { class: 'hint', text: 'End-to-end encrypted voice chat' }))),
+      el('div', { class: 'about-status ' + tone },
+        el('div', { class: 'about-ic' }, ic),
+        el('div', { class: 'about-text' },
+          el('div', { class: 'about-title', text: title }),
+          sub && el('div', { class: 'hint', text: sub }),
+          bar,
+          el('div', { class: 'about-ver', text: 'Version ' + (u.current || S.version || 'dev') + ' (' + plat + (kindName ? ', ' + kindName : '') + ', ' + ({ amd64: '64-bit', arm64: 'ARM64' }[u.arch] || u.arch || '64-bit') + ')' })),
+        action && el('div', { class: 'about-action' }, action)),
+      u.status === 'available' && !u.canInstall && u.reason && el('div', { class: 'callout warn', style: 'margin:0 16px 14px', text: u.reason }),
+      notes && el('div', { class: 'about-notes' }, el('div', { class: 'section-title', style: 'margin-top:0', text: "What's new in " + u.latest }), el('div', { class: 'notes', text: notes })),
+      el('div', { class: 'about-row link', onclick: () => act('open_url', { url: u.url || 'https://github.com/jmsuos/SecureSpeak/releases' }) },
+        el('span', { text: 'Release notes and downloads' }), icon('external')),
+      el('div', { class: 'about-row link', onclick: () => act('open_url', { url: 'https://github.com/jmsuos/SecureSpeak/security' }) },
+        el('span', { text: 'Report a security problem' }), icon('external'))),
+    el('label', { class: 'check', style: 'margin-top:14px' },
+      el('input', { type: 'checkbox', checked: !!(U && U.auto), onchange: (e) => act('update_auto', { on: e.target.checked }) }),
+      'Check for updates automatically'),
+    el('div', { class: 'hint', text: 'SecureSpeak asks GitHub for the latest release when it starts and every 6 hours. Nothing is sent except the request itself (GitHub sees your IP address). Updates are only installed when you click Install, and every download is checked against the release\'s SHA-256 checksums first.' }),
+    el('div', { class: 'hint', style: 'margin-top:14px', text: 'Copyright © 2026 jmsuos and SecureSpeak contributors. Free software under the GNU GPL v3.0.' + (u.checked ? ' Last checked ' + new Date(u.checked).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) + '.' : '') }));
 }
 
 // ---------------------------------------------------------------- toolbar wiring
@@ -1227,6 +1374,7 @@ $('btn-mute').onclick = () => act('status', { muted: !S.muted });
 $('btn-deaf').onclick = () => act('status', S.deaf ? { deaf: false, muted: false } : { deaf: true });
 $('btn-away').onclick = toggleAway;
 $('btn-settings').onclick = openSettings;
+$('btn-quit').onclick = quitApp;
 $('btn-admin').onclick = adminButton;
 $('btn-new-channel').onclick = () => openChannelModal(null, 0);
 function holdButton(b, down, up) {
@@ -1251,6 +1399,7 @@ document.addEventListener('keydown', (e) => {
   if (k === 'm' && S) { e.preventDefault(); act('status', { muted: !S.muted }); }
   if (k === 'd' && S) { e.preventDefault(); $('btn-deaf').click(); }
   if (k === 's') { e.preventDefault(); openConnect(); }
+  if (k === 'q') { e.preventDefault(); quitApp(); }
 });
 
 // pane resizer

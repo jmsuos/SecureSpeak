@@ -84,11 +84,18 @@ Root: HKA; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueType: s
 
 [Run]
 Filename: "{app}\SecureSpeak.exe"; Description: "{cm:LaunchProgram,SecureSpeak}"; Flags: nowait postinstall skipifsilent
+; In-app updates run this setup with /SILENT /UPDATE=1: start SecureSpeak again afterwards.
+Filename: "{app}\SecureSpeak.exe"; Parameters: "-after-update"; Flags: nowait runasoriginaluser; Check: IsAppUpdate
 
 [UninstallRun]
 Filename: "{sys}\taskkill.exe"; Parameters: "/F /IM SecureSpeak.exe"; Flags: runhidden; RunOnceId: "StopSecureSpeak"
 
 [Code]
+function IsAppUpdate: Boolean;
+begin
+  Result := ExpandConstant('{param:UPDATE|0}') = '1';
+end;
+
 // Stop a running SecureSpeak before files are replaced (it has no window of
 // its own that the Restart Manager could close politely).
 function PrepareToInstall(var NeedsRestart: Boolean): String;

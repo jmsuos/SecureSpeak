@@ -44,6 +44,8 @@ for example:
 - Crashes or resource exhaustion of the **server** that an ordinary,
   unprivileged user can trigger remotely.
 - Problems in the Windows installer or the Linux packages.
+- Making the built-in updater install something other than a genuine release,
+  for example by getting it past the SHA-256 checks.
 
 ## Known limitations (not vulnerabilities)
 
@@ -61,3 +63,7 @@ issues:
 - Server admins can moderate users with less power than they have. That is
   intended.
 - The cryptography has been tested but not independently audited.
+- The updater trusts GitHub: it downloads releases over HTTPS from this
+  repository and checks them against the release's `SHA256SUMS`. That catches
+  corrupted or swapped downloads, but someone who controls the repository could
+  publish a malicious release. Releases are not separately signed yet.

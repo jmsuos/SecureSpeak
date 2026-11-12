@@ -212,6 +212,21 @@ func (a args) optBool(k string) *bool {
 	return &b
 }
 
+// AutoUpdate reports whether SecureSpeak checks for updates automatically.
+func (c *Client) AutoUpdate() bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return !c.cfg.NoAutoUpdate
+}
+
+// SetAutoUpdate turns automatic update checks on or off (persisted).
+func (c *Client) SetAutoUpdate(on bool) {
+	c.mu.Lock()
+	c.cfg.NoAutoUpdate = !on
+	c.saveLocked()
+	c.mu.Unlock()
+}
+
 // ErrQuit is returned by HandleCommand("quit").
 var ErrQuit = errors.New("quit")
 

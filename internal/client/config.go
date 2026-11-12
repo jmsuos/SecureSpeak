@@ -66,7 +66,8 @@ type Config struct {
 	Audio        AudioSettings         `json:"audio"`
 	Whisper      []WhisperList         `json:"whisper"`
 	DownloadDir  string                `json:"downloadDir"`
-	NoAutoMedia  bool                  `json:"noAutoMedia"` // do not auto-load image/video previews
+	NoAutoMedia  bool                  `json:"noAutoMedia"`  // do not auto-load image/video previews
+	NoAutoUpdate bool                  `json:"noAutoUpdate"` // do not check GitHub for new versions automatically
 }
 
 func defaultConfig() *Config {
