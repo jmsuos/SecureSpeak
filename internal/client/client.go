@@ -1452,7 +1452,7 @@ func (c *Client) handleVideo(s *session, payload []byte) {
 		return
 	}
 	pt, err := k.OpenVoice(sender, inner)
-	if err != nil || len(pt) < 3 || (pt[0] != proto.CodecVP8 && pt[0] != proto.CodecVP9) || !p.vwins[keyID].Check(ctr) {
+	if err != nil || len(pt) < 3 || (pt[0] != proto.CodecVP8 && pt[0] != proto.CodecVP9 && pt[0] != proto.CodecOpusShare) || !p.vwins[keyID].Check(ctr) {
 		c.mu.Unlock()
 		return
 	}
