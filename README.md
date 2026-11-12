@@ -1,3 +1,5 @@
+<p align="center"><img src="assets/securespeak-logo.png" alt="SecureSpeak" width="320"></p>
+
 # SecureSpeak 3.2
 
 A TeamSpeak-style voice and text server with end-to-end encryption. There are no
@@ -12,6 +14,7 @@ and can never hear, read or fake anything.
 
 ## What's new in 3.2
 
+- **New look (3.2.1):** a new logo, and a microphone-shield app icon used for the Windows installer, the exe, the Start menu, the Linux menu and the window.
 - **Automatic updates.** SecureSpeak checks GitHub for a new release when it starts and every 6 hours. When there is one, a notice offers **Install and restart**. SecureSpeak then closes, installs the update and opens again.
 - **About SecureSpeak** (*Settings → About SecureSpeak*) shows your version and checks for updates as soon as you open it, the way Chrome and Brave do. It also shows what's new in the latest release. You can switch automatic checks off there.
   - **Checked before installing:** every download is checked against the release's `SHA256SUMS` (and the SHA-256 that GitHub reports for the file). Nothing is replaced if they don't match.
