@@ -81,12 +81,18 @@ func (m *Manager) Check() {
 	m.busy = true
 	m.mu.Unlock()
 	go func() {
-		defer func() { m.mu.Lock(); m.busy = false; m.mu.Unlock() }()
-		m.check()
+		final := m.check()
+		// Not busy any more before the result is announced, so a check
+		// requested right after seeing the result is not ignored.
+		m.mu.Lock()
+		m.busy = false
+		m.mu.Unlock()
+		m.set(final)
 	}()
 }
 
-func (m *Manager) check() {
+// check returns the final state change; the caller applies it.
+func (m *Manager) check() func(*State) {
 	m.set(func(s *State) { s.Status, s.Error, s.Progress = "checking", "", 0 })
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
@@ -96,13 +102,12 @@ func (m *Manager) check() {
 		time.Sleep(d) // let the spinner be seen; an instant flip looks broken
 	}
 	if err != nil {
-		m.set(func(s *State) { s.Status, s.Error = "error", "Could not check for updates: "+err.Error() })
-		return
+		return func(s *State) { s.Status, s.Error = "error", "Could not check for updates: "+err.Error() }
 	}
 	m.mu.Lock()
 	m.rel = r
 	m.mu.Unlock()
-	m.set(func(s *State) {
+	return func(s *State) {
 		s.Latest, s.Notes, s.Published, s.URL = r.Version(), r.Notes, r.Published, r.URL
 		s.Checked = time.Now().UnixMilli()
 		s.CanInstall = false
@@ -118,7 +123,7 @@ func (m *Manager) check() {
 				s.Reason = "This release has no download for your system yet."
 			}
 		}
-	})
+	}
 }
 
 // Install downloads, verifies and installs the latest release, then hands the
