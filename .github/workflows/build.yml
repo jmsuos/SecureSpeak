@@ -1,11 +1,14 @@
 name: Build
 
 # Every push/PR: tests + all builds (downloadable as workflow artifacts).
-# Pushing a tag like v3.0.1: additionally publishes a GitHub Release.
+# A version tag like v3.0.1 - pushed with git, or created on GitHub via
+# "Draft a new release" - additionally attaches all downloads to that release.
 on:
   push:
     branches: [main]
     tags: ['v*']
+  release:
+    types: [published]
   pull_request:
   workflow_dispatch:
 
@@ -214,4 +217,9 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release create "$GITHUB_REF_NAME" release/* --title "SecureSpeak ${{ needs.version.outputs.version }}" --generate-notes
+          if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
+            # release created on github.com: attach the files to it
+            gh release upload "$GITHUB_REF_NAME" release/* --clobber
+          else
+            gh release create "$GITHUB_REF_NAME" release/* --title "SecureSpeak ${{ needs.version.outputs.version }}" --generate-notes
+          fi
