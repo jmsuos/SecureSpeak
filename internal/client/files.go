@@ -23,6 +23,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -44,6 +45,36 @@ type fileOffer struct {
 	Name   string `json:"name"`
 	Size   int64  `json:"size"`
 	SHA256 []byte `json:"sha256"`
+	Mime   string `json:"mime,omitempty"`
+}
+
+// Media up to these sizes is loaded automatically so it can be previewed.
+const (
+	maxAutoImage = 16 << 20
+	maxAutoVideo = 64 << 20
+)
+
+var mimeRe = regexp.MustCompile(`^[a-z]+/[a-z0-9.+-]{1,80}$`)
+
+func cleanMime(m string) string {
+	m = strings.ToLower(strings.TrimSpace(m))
+	if i := strings.IndexByte(m, ';'); i >= 0 {
+		m = m[:i]
+	}
+	if !mimeRe.MatchString(m) {
+		return ""
+	}
+	return m
+}
+
+func autoPreview(f *fileOffer) bool {
+	switch {
+	case strings.HasPrefix(f.Mime, "image/") && f.Mime != "image/svg+xml":
+		return f.Size <= maxAutoImage
+	case strings.HasPrefix(f.Mime, "video/"):
+		return f.Size <= maxAutoVideo
+	}
+	return false
 }
 
 type outFile struct {
@@ -71,6 +102,8 @@ type remoteOffer struct {
 
 type recvXfer struct {
 	offer    *remoteOffer
+	cache    bool   // auto-loaded media preview (kept in the cache folder)
+	saved    string // where a cached file was saved by the user
 	state    string // requesting | downloading | verifying | done | failed
 	fc       *e2e.FileCipher
 	chunks   int
@@ -156,7 +189,8 @@ func (c *Client) downloadDirLocked() string {
 func (c *Client) emitFile(ev map[string]any) { c.em.Emit("file", ev) }
 
 // OfferFile stores a copy of the upload and offers it in the chat.
-func (c *Client) OfferFile(kind string, target uint32, name string, r io.Reader) error {
+func (c *Client) OfferFile(kind string, target uint32, name, mime string, r io.Reader) error {
+	mime = cleanMime(mime)
 	if kind != "channel" && kind != "private" {
 		return errors.New("files can be sent to a channel or a user")
 	}
@@ -188,7 +222,7 @@ func (c *Client) OfferFile(kind string, target uint32, name string, r io.Reader)
 		os.Remove(path)
 		return err
 	}
-	off := &outFile{fileOffer: fileOffer{ID: id, Name: name, Size: n, SHA256: h.Sum(nil)}, path: path}
+	off := &outFile{fileOffer: fileOffer{ID: id, Name: name, Size: n, SHA256: h.Sum(nil), Mime: mime}, path: path}
 	return c.withSession(func(s *session) error {
 		tgt, recips, err := c.sendBodyLocked(s, kind, target, chatBody{File: &off.fileOffer})
 		if err != nil {
@@ -200,7 +234,7 @@ func (c *Client) OfferFile(kind string, target uint32, name string, r io.Reader)
 		c.em.Emit("chat", map[string]any{
 			"kind": kind, "from": s.myID, "fromNick": s.me.Nick, "target": tgt, "ts": time.Now().UnixMilli(),
 			"self": true, "recipients": len(recips),
-			"file": map[string]any{"id": id, "name": name, "size": n, "own": true},
+			"file": map[string]any{"id": id, "name": name, "size": n, "mime": mime, "own": true},
 		})
 		return nil
 	})
@@ -212,8 +246,13 @@ func (c *Client) registerOfferLocked(s *session, p *Peer, f *fileOffer) map[stri
 	}
 	ro := &remoteOffer{fileOffer: *f, from: p.Info.ID}
 	ro.Name = SanitizeFileName(f.Name)
+	ro.Mime = cleanMime(f.Mime)
 	s.remoteOffers[f.ID] = ro
-	return map[string]any{"id": f.ID, "name": ro.Name, "size": f.Size}
+	auto := !c.cfg.NoAutoMedia && autoPreview(&ro.fileOffer)
+	if auto && s.recvs[f.ID] == nil {
+		c.requestLocked(s, ro, true)
+	}
+	return map[string]any{"id": f.ID, "name": ro.Name, "size": f.Size, "mime": ro.Mime, "auto": auto}
 }
 
 func (c *Client) sendCtlLocked(s *session, to uint32, m fileCtl) {
@@ -243,11 +282,88 @@ func (c *Client) DownloadFile(id string) error {
 		if rx := s.recvs[id]; rx != nil && (rx.state == "requesting" || rx.state == "downloading" || rx.state == "verifying") {
 			return nil
 		}
-		s.recvs[id] = &recvXfer{offer: ro, state: "requesting"}
-		c.sendCtlLocked(s, ro.from, fileCtl{Op: "req", ID: id})
-		c.emitFile(map[string]any{"id": id, "dir": "in", "state": "requesting", "name": ro.Name, "size": ro.Size, "peer": p.Info.Nick})
+		c.requestLocked(s, ro, false)
 		return nil
 	})
+}
+
+func (c *Client) requestLocked(s *session, ro *remoteOffer, cache bool) {
+	s.recvs[ro.ID] = &recvXfer{offer: ro, state: "requesting", cache: cache}
+	c.sendCtlLocked(s, ro.from, fileCtl{Op: "req", ID: ro.ID})
+	nick := ""
+	if p := s.peers[ro.from]; p != nil {
+		nick = p.Info.Nick
+	}
+	c.emitFile(map[string]any{"id": ro.ID, "dir": "in", "state": "requesting", "name": ro.Name, "size": ro.Size, "peer": nick, "cached": cache})
+}
+
+// MediaFile returns the local path of a file we offered or finished
+// receiving, for previews.
+func (c *Client) MediaFile(id string) (string, bool) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	s := c.sess
+	if s == nil {
+		return "", false
+	}
+	if off := s.offers[id]; off != nil {
+		return off.path, true
+	}
+	if rx := s.recvs[id]; rx != nil && rx.state == "done" {
+		return rx.final, true
+	}
+	return "", false
+}
+
+// SaveCachedFile copies an auto-loaded preview into the download folder.
+func (c *Client) SaveCachedFile(id string) (any, error) {
+	c.mu.Lock()
+	s := c.sess
+	var rx *recvXfer
+	if s != nil {
+		rx = s.recvs[id]
+	}
+	if rx == nil || rx.state != "done" {
+		c.mu.Unlock()
+		return nil, errors.New("the file is not available")
+	}
+	if !rx.cache || rx.saved != "" {
+		p := rx.final
+		if rx.saved != "" {
+			p = rx.saved
+		}
+		c.mu.Unlock()
+		return map[string]any{"path": p}, nil
+	}
+	dir := c.downloadDirLocked()
+	src, name := rx.final, rx.offer.Name
+	c.mu.Unlock()
+	if err := os.MkdirAll(dir, 0700); err != nil {
+		return nil, err
+	}
+	dst := uniquePath(dir, name)
+	in, err := os.Open(src)
+	if err != nil {
+		return nil, err
+	}
+	defer in.Close()
+	out, err := os.OpenFile(dst, os.O_CREATE|os.O_WRONLY|os.O_EXCL, 0600)
+	if err != nil {
+		return nil, err
+	}
+	if _, err := io.Copy(out, in); err != nil {
+		out.Close()
+		os.Remove(dst)
+		return nil, err
+	}
+	if err := out.Close(); err != nil {
+		return nil, err
+	}
+	c.mu.Lock()
+	rx.saved = dst
+	c.mu.Unlock()
+	c.emitFile(map[string]any{"id": id, "dir": "in", "state": "done", "name": name, "size": rx.offer.Size, "bytes": rx.offer.Size, "path": dst, "cached": true, "saved": true})
+	return map[string]any{"path": dst}, nil
 }
 
 // CancelFile cancels an incoming download, or all outgoing sends of a file.
@@ -281,6 +397,12 @@ func (c *Client) DownloadedPath(id string) (string, error) {
 			return errors.New("file not downloaded")
 		}
 		p = rx.final
+		if rx.cache {
+			if rx.saved == "" {
+				return errors.New("save the file first")
+			}
+			p = rx.saved
+		}
 		return nil
 	})
 	return p, err
@@ -338,6 +460,9 @@ func (c *Client) handleFileCtlLocked(s *session, fc proto.FileCtl) {
 			return
 		}
 		dir := c.downloadDirLocked()
+		if rx.cache {
+			dir = c.store.CacheDir()
+		}
 		if err := os.MkdirAll(dir, 0700); err != nil {
 			c.failRecvLocked(s, rx, err.Error())
 			return
@@ -452,7 +577,11 @@ func (c *Client) finishRecvLocked(s *session, rx *recvXfer) {
 			return
 		}
 		rx.state = "done"
-		c.emitFile(map[string]any{"id": id, "dir": "in", "state": "done", "name": rx.offer.Name, "size": rx.offer.Size, "bytes": rx.offer.Size, "path": rx.final})
+		ev := map[string]any{"id": id, "dir": "in", "state": "done", "name": rx.offer.Name, "size": rx.offer.Size, "bytes": rx.offer.Size, "cached": rx.cache}
+		if !rx.cache {
+			ev["path"] = rx.final
+		}
+		c.emitFile(ev)
 		if c.sess == s {
 			c.sendCtlLocked(s, from, fileCtl{Op: "done", ID: id})
 		}

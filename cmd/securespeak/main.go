@@ -119,6 +119,8 @@ func main() {
 	})
 	core.SetVoiceSink(bridge.SendVoice)
 	bridge.VoiceIn = core.HandleVoiceFrame
+	bridge.VideoIn = core.HandleVideoFrame
+	bridge.Media = core.MediaFile
 	bridge.Upload = core.OfferFile
 	bridge.Avatar = core.Avatar
 	bridge.AvatarCT = client.ImageMime

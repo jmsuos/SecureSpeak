@@ -40,6 +40,7 @@ type uiClient struct {
 	HasKey      bool     `json:"hasKey"`
 	Volume      float64  `json:"volume"`
 	LocalMute   bool     `json:"localMute"`
+	Sharing     bool     `json:"sharing"`
 	Me          bool     `json:"me"`
 	Avatar      string   `json:"avatar"` // hash, "" = none
 }
@@ -85,6 +86,9 @@ type uiState struct {
 	Avatar          string              `json:"avatar"`
 	Platform        string              `json:"platform"`
 	Version         string              `json:"version"`
+	Sharing         bool                `json:"sharing"`
+	ServerHasPw     bool                `json:"serverHasPw"`
+	AutoMedia       bool                `json:"autoMedia"`
 	KeyProtected    bool                `json:"keyProtected"`
 	MaxClients      int                 `json:"maxClients"`
 }
@@ -98,7 +102,7 @@ func (c *Client) stateLocked() uiState {
 		Audio: c.cfg.Audio, PTTKeyName: hotkey.Name(c.cfg.Audio.PTTKey),
 		HotkeySupported: hotkey.Supported(), HotkeyInfo: hotkey.Info(),
 		Whisper: []uiWhisper{}, DownloadDir: c.downloadDirLocked(), Avatar: c.avatarHash,
-		Platform: runtime.GOOS, Version: AppVersion,
+		Platform: runtime.GOOS, Version: AppVersion, Sharing: c.sharing, AutoMedia: !c.cfg.NoAutoMedia,
 		KeyProtected: platform.ProtectsSecrets,
 		Channels:     []proto.ChannelInfo{}, Clients: []uiClient{},
 		Perms: []string{}, Roles: []proto.RoleInfo{}, PermCatalog: proto.PermCatalog,
@@ -129,6 +133,7 @@ func (c *Client) stateLocked() uiState {
 	st.Perms, st.Power = proto.SortedPerms(myPerms), myPower
 	st.MaxClients = s.maxClients
 	st.WhisperAllowed = s.allowWhisper
+	st.ServerHasPw = s.hasPw
 	for _, ch := range s.channels {
 		st.Channels = append(st.Channels, ch)
 	}
@@ -143,7 +148,7 @@ func (c *Client) stateLocked() uiState {
 		ID: s.myID, Nick: s.me.Nick, Channel: s.me.Channel, Roles: nonNil(s.me.Roles), Owner: s.me.Owner, Power: myPower,
 		Muted: c.muted, Deaf: c.deaf, ServerMuted: s.me.ServerMuted, Away: c.away, AwayMsg: c.awayMsg,
 		FP: e2e.Fingerprint(c.id.Pub), Valid: true, Verified: true, HasKey: true, Volume: 1, Me: true,
-		Avatar: c.avatarHash,
+		Avatar: c.avatarHash, Sharing: c.sharing,
 	})
 	for _, p := range s.peers {
 		i := p.Info
@@ -151,7 +156,7 @@ func (c *Client) stateLocked() uiState {
 			ID: i.ID, Nick: i.Nick, Channel: i.Channel, Roles: nonNil(i.Roles), Owner: i.Owner, Power: power(s, i), Muted: i.Muted, Deaf: i.Deaf,
 			ServerMuted: i.ServerMuted, Away: i.Away, AwayMsg: i.AwayMsg, FP: p.FP, Valid: p.Valid,
 			Verified: p.verified, KeyChanged: p.keyChanged, HasKey: len(p.keys) > 0,
-			Volume: p.volume, LocalMute: p.localMute, Avatar: p.avatarHash,
+			Volume: p.volume, LocalMute: p.localMute, Avatar: p.avatarHash, Sharing: i.Sharing,
 		})
 	}
 	sort.Slice(st.Clients, func(i, j int) bool {
@@ -294,6 +299,42 @@ func (c *Client) HandleCommand(cmd string, raw json.RawMessage) (any, error) {
 		c.mu.Unlock()
 		c.emitState()
 		return nil, nil
+
+	case "server_password":
+		return nil, c.withSession(func(s *session) error {
+			pw, remove := a.str("password"), a.boolean("remove")
+			if !remove && (pw == "" || len(pw) > 128) {
+				return errors.New("the password must be 1-128 characters")
+			}
+			s.send(proto.TServerPw, proto.ServerPassword{Password: pw, Remove: remove})
+			return nil
+		})
+
+	case "share":
+		return nil, c.SetSharing(a.boolean("on"))
+
+	case "watch":
+		return nil, c.withSession(func(s *session) error {
+			s.send(proto.TWatch, proto.Watch{ID: a.id("id"), On: a.boolean("on")})
+			return nil
+		})
+
+	case "request_keyframe":
+		return nil, c.withSession(func(s *session) error {
+			s.send(proto.TKeyframeReq, proto.KeyframeReq{To: a.id("id")})
+			return nil
+		})
+
+	case "auto_media":
+		c.mu.Lock()
+		c.cfg.NoAutoMedia = !a.boolean("on")
+		c.saveLocked()
+		c.mu.Unlock()
+		c.emitState()
+		return nil, nil
+
+	case "file_save":
+		return c.SaveCachedFile(a.str("id"))
 
 	case "token_use":
 		return nil, c.withSession(func(s *session) error {
