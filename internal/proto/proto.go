@@ -49,6 +49,8 @@ const (
 	// Screen share video codecs (WebCodecs in the client UI).
 	CodecVP8 byte = 10
 	CodecVP9 byte = 11
+	// Screen share sound: 48 kHz stereo Opus, carried with the video frames.
+	CodecOpusShare byte = 12
 
 	// Voice routing modes (first byte of a client voice payload).
 	VoiceChannel byte = 0 // [0][signed inner]

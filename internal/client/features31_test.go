@@ -97,6 +97,17 @@ func TestScreenShare(t *testing.T) {
 	if f[0] != 2 || binary.BigEndian.Uint32(f[1:]) != aliceID || f[5] != 1 || f[6] != proto.CodecVP9 || !bytes.Equal(f[7:], big) {
 		t.Fatal("watcher got a corrupted frame")
 	}
+	// shared sound travels the same way; unknown codec types are rejected
+	alice.HandleVideoFrame(0, proto.CodecOpusShare, []byte("stereo-opus"))
+	alice.HandleVideoFrame(0, 99, []byte("bogus"))
+	waitFor(t, "sound frame at watcher", func() bool { return bs.n() == 3 })
+	time.Sleep(100 * time.Millisecond)
+	bs.mu.Lock()
+	if n := len(bs.frames); n != 3 || bs.frames[2][6] != proto.CodecOpusShare || string(bs.frames[2][7:]) != "stereo-opus" {
+		bs.mu.Unlock()
+		t.Fatalf("unexpected frames after sound test (%d)", n)
+	}
+	bs.mu.Unlock()
 	time.Sleep(150 * time.Millisecond)
 	if cs.n() != 0 {
 		t.Fatal("non-watcher received the screen share")
@@ -119,7 +130,7 @@ func TestScreenShare(t *testing.T) {
 	waitFor(t, "sharing stopped", func() bool { return !clientByNick(bob, "Alice").Sharing })
 	alice.HandleVideoFrame(1, proto.CodecVP9, []byte("after stop"))
 	time.Sleep(150 * time.Millisecond)
-	if bs.n() != 2 {
+	if bs.n() != 3 {
 		t.Fatal("frames delivered after sharing stopped")
 	}
 }

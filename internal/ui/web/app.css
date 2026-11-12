@@ -305,3 +305,7 @@ video.media-thumb { cursor: default; }
 .drop-box { border: 2px dashed var(--accent); border-radius: 16px; padding: 40px 60px; text-align: center; background: rgba(91, 124, 250, .08); }
 .drop-icon { font-size: 40px; color: var(--accent-2); }
 .drop-text { font-size: 16px; font-weight: 600; margin-top: 6px; }
+
+.stage-audio { display: flex; align-items: center; gap: 6px; margin-right: 6px; }
+.stage-audio input[type=range] { width: 110px; flex: none; }
+.stage-audio .val { width: 42px; color: var(--dim); font-size: 12px; font-variant-numeric: tabular-nums; }
