@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=SecureSpeak
+GenericName=Encrypted voice chat
+Comment=End-to-end encrypted voice and text chat
+Exec=securespeak
+Icon=securespeak
+Terminal=false
+Categories=Network;Chat;AudioVideo;
+Keywords=voice;teamspeak;chat;encrypted;

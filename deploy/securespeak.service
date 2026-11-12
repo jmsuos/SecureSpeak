@@ -1,0 +1,32 @@
+[Unit]
+Description=SecureSpeak voice server (end-to-end encrypted)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=securespeak
+Group=securespeak
+ExecStart=/usr/local/bin/securespeak-server -data /var/lib/securespeak
+Restart=on-failure
+RestartSec=3
+
+# hardening
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictNamespaces=true
+LockPersonality=true
+MemoryDenyWriteExecute=true
+RestrictAddressFamilies=AF_INET AF_INET6
+StateDirectory=securespeak
+StateDirectoryMode=0700
+ReadWritePaths=/var/lib/securespeak
+
+[Install]
+WantedBy=multi-user.target
