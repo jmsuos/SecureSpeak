@@ -12,6 +12,9 @@ and can never hear, read or fake anything.
 
 ## What's new in 3.1
 
+- **Screen share sound (3.1.1):** sound is shared too, as stereo Opus at 128 kbit/s, end-to-end encrypted. Viewers get their own volume slider and mute button.
+  - **Windows:** in the sharing dialog, switch on **"Also share system audio"**. It's offered for whole screens and, in recent Edge versions, for windows. SecureSpeak asks Edge to leave its own playback (other people's voices) out of the shared sound, so viewers don't hear themselves.
+  - **Linux:** the browser engine only supports sound for browser tabs, so screens and windows are shared without sound.
 - **Screen share:** click *Share screen* to share a screen or window with your channel. Others click the red **LIVE** badge (or *Watch screen*) to watch. Video is VP9 (or VP8), up to 1080p at 15 fps, and **end-to-end encrypted and signed** like voice. The server only forwards it to the people actually watching and can't see it.
 - **Paste and drop files:** press **Ctrl+V** to send a copied screenshot or file, or drop files anywhere on the window. Pasted screenshots get a proper name (`Screenshot 2026-11-12 21.02.32.png`).
 - **Image and video previews:** images (up to 16 MB) and MP4/WebM videos (up to 64 MB) load automatically and show inline in the chat. Click an image for the full-size view. Previews are kept in a private cache until you click **Save**. You can switch this off in *Settings → Profile & security*.
