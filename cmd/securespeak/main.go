@@ -3,6 +3,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"flag"
 	"fmt"
@@ -19,6 +20,7 @@ import (
 	"securespeak/internal/client"
 	"securespeak/internal/platform"
 	"securespeak/internal/ui"
+	"securespeak/internal/update"
 )
 
 // version is set at build time: -ldflags "-X main.version=3.0.1"
@@ -61,6 +63,7 @@ func main() {
 	dataDirFlag := flag.String("data", "", "data directory (default: %APPDATA%\\SecureSpeak or ~/.config/SecureSpeak)")
 	noWindow := flag.Bool("no-window", false, "do not open the app window; print the URL instead")
 	showVersion := flag.Bool("version", false, "print the version and exit")
+	afterUpdate := flag.Bool("after-update", false, "started by the updater: wait for the previous version to exit")
 	flag.Parse()
 	if *showVersion {
 		fmt.Println("SecureSpeak", version)
@@ -88,6 +91,12 @@ func main() {
 	// Single instance: if SecureSpeak is already running with this data
 	// folder, just bring up its window (e.g. clicking the Start menu entry again).
 	instPath := filepath.Join(dataDir, "instance.json")
+	if *afterUpdate {
+		// the old version is still shutting down
+		for i := 0; i < 100 && runningInstance(instPath) != ""; i++ {
+			time.Sleep(200 * time.Millisecond)
+		}
+	}
 	if u := runningInstance(instPath); u != "" {
 		if *noWindow {
 			fmt.Println("SecureSpeak is already running:", u)
@@ -105,8 +114,29 @@ func main() {
 	if err != nil {
 		fatal(err)
 	}
+	upd := update.New(version, filepath.Join(dataDir, "update"))
+	upd.Cleanup()
+	updates := update.NewManager(upd, func(s update.State) { bridge.Emit("update", s) }, core.AutoUpdate)
+	if *afterUpdate {
+		updates.MarkUpdated()
+	}
 	quit := make(chan struct{}, 1)
 	bridge.SetHandler(func(cmd string, args json.RawMessage) (any, error) {
+		switch cmd {
+		case "update_state":
+			return updates.State(), nil
+		case "update_check":
+			updates.Check()
+			return nil, nil
+		case "update_install":
+			return nil, updates.Install()
+		case "update_auto":
+			var a struct{ On bool }
+			json.Unmarshal(args, &a)
+			core.SetAutoUpdate(a.On)
+			updates.Publish()
+			return nil, nil
+		}
 		res, err := core.HandleCommand(cmd, args)
 		if err == client.ErrQuit {
 			select {
@@ -160,7 +190,11 @@ func main() {
 	if windowClosed == nil {
 		fmt.Println("SecureSpeak UI:", uiURL)
 	}
-	log.Printf("SecureSpeak %s started, identity %s", version, core.Fingerprint())
+	log.Printf("SecureSpeak %s started (%s install), identity %s", version, upd.Kind, core.Fingerprint())
+	updates.Publish()
+	runCtx, stopRun := context.WithCancel(context.Background())
+	defer stopRun()
+	go updates.Run(runCtx, 5*time.Second)
 
 	// Without our own window (default-browser fallback) we exit once the
 	// browser tab has been closed for a while.
@@ -172,10 +206,15 @@ func main() {
 	}
 	sig := make(chan os.Signal, 1)
 	signal.Notify(sig, os.Interrupt, syscall.SIGTERM)
+	var pending *update.Pending
+	windowGone := false
 wait:
 	for {
 		select {
 		case <-windowClosed:
+			windowGone = true
+			break wait
+		case pending = <-updates.Restart:
 			break wait
 		case <-quit:
 			break wait
@@ -187,7 +226,39 @@ wait:
 			}
 		}
 	}
+	stopRun()
+
+	// Close the app window: the page closes itself on "closing"; if it does
+	// not, end the browser process we started.
+	bridge.Emit("closing", map[string]bool{"restart": pending != nil})
 	core.Close()
+	if windowClosed != nil && !windowGone {
+		select {
+		case <-windowClosed:
+		case <-time.After(2500 * time.Millisecond):
+			platform.CloseWindow()
+			select {
+			case <-windowClosed:
+			case <-time.After(time.Second):
+			}
+		}
+	} else {
+		time.Sleep(300 * time.Millisecond)
+	}
+	if pending != nil {
+		var args []string
+		if *dataDirFlag != "" {
+			args = append(args, "-data", dataDir)
+		}
+		if *noWindow {
+			args = append(args, "-no-window")
+		}
+		log.Printf("restarting into SecureSpeak %s", pending.Version)
+		if err := pending.Finish(args); err != nil {
+			log.Printf("update: %v", err)
+			platform.Fatal("SecureSpeak", "The update was downloaded but SecureSpeak could not be restarted: "+err.Error()+"\n\nStart SecureSpeak again manually.")
+		}
+	}
 	time.Sleep(100 * time.Millisecond)
 }
 

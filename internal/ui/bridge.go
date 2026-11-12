@@ -96,7 +96,7 @@ func (b *Bridge) Emit(t string, v any) {
 	}
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	if t == "state" || t == "stats" {
+	if t == "state" || t == "stats" || t == "update" {
 		b.last[t] = msg
 	}
 	for ch := range b.subs {

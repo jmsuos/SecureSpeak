@@ -111,6 +111,7 @@ func OpenWindow(url, profileDir string) (<-chan struct{}, error) {
 	if err := cmd.Start(); err != nil {
 		return nil, err
 	}
+	setWindow(cmd)
 	done := make(chan struct{})
 	go func() {
 		cmd.Wait()
