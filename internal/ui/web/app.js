@@ -1443,6 +1443,8 @@ function onFileEvent(d) {
     if (d.state === 'done' && was !== 'done' && !d.cached) { AE.sound('file'); toast('Received ' + d.name); }
     if (d.state === 'done' && d.saved) toast('Saved ' + d.name);
     if (d.state === 'failed' && !d.cached) toast('Download of ' + d.name + ' failed: ' + (d.error || 'unknown error'), 'error');
+  } else if (d.state === 'withdrawn') {
+    st.withdrawn = true;
   } else {
     st.out.set(d.peerId, Object.assign(st.out.get(d.peerId) || {}, d));
   }
@@ -1489,6 +1491,20 @@ function renderFileCard(n) {
     el('div', { class: 'fc-name' }, el('div', { text: name }), el('div', { class: 'hint', text: fmtBytes(size) + ' · end-to-end encrypted' })));
   const body = el('div', { class: 'fc-body' });
   const x = st.in;
+  const withdrawn = own ? !!st.withdrawn : !!(x && x.state === 'withdrawn');
+  n.classList.toggle('withdrawn', withdrawn);
+  if (withdrawn) {
+    if (own) {
+      body.append(el('div', { class: 'hint', text: 'You withdrew this file. Nobody can download it anymore.' }));
+    } else if (x.kept) {
+      body.append(el('div', { class: 'hint', text: 'The sender withdrew this file. Your saved copy is kept.' }),
+        el('div', { class: 'fc-actions' }, el('button', { class: 'btn', onclick: () => act('file_reveal', { id }) }, icon('folder'), 'Show in folder')));
+    } else {
+      body.append(el('div', { class: 'hint', text: 'The sender withdrew this file.' }));
+    }
+    n.replaceChildren(head, body);
+    return;
+  }
   const showPreview = kind && (own || (x && x.state === 'done'));
   if (showPreview) body.append(mediaPreview(id, kind, name));
   if (own) {
@@ -1500,7 +1516,11 @@ function renderFileCard(n) {
       else if (o.state === 'failed') line.append(el('span', { class: 'err', text: o.error || 'failed' }));
       body.append(line);
     }
-    body.append(el('div', { class: 'fc-actions' }, el('button', { class: 'btn', onclick: () => act('file_cancel', { id }) }, 'Withdraw')));
+    body.append(el('div', { class: 'fc-actions' }, el('button', {
+      class: 'btn', onclick: async () => {
+        if (await confirmModal('Withdraw file', 'Withdraw "' + name + '"? Everyone it was sent to will see it was withdrawn and can no longer download it. Copies people already saved stay on their computer.', 'Withdraw', true)) act('file_cancel', { id });
+      },
+    }, 'Withdraw')));
   } else if (!x || x.state === 'failed') {
     add(body, x && !x.cached && el('div', { class: 'err', text: x.error || 'failed' }),
       el('div', { class: 'fc-actions' }, el('button', { class: 'btn primary', onclick: () => act('file_download', { id }) }, icon('download'), x && !x.cached ? 'Retry' : 'Download')));
