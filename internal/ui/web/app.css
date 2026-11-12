@@ -260,6 +260,8 @@ table.list td { padding: 6px; border-bottom: 1px solid var(--line); }
 .progress > div { height: 100%; background: var(--accent); transition: width .2s; }
 .ok { color: var(--ok); }
 .err { color: var(--danger); font-size: 12.5px; }
+.filecard.withdrawn { opacity: .6; }
+.filecard.withdrawn .fc-name > div:first-child { text-decoration: line-through; }
 
 /* ---- v3: roles ---- */
 .badge.owner { background: rgba(245, 184, 74, .18); color: var(--warn); }
