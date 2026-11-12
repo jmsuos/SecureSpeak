@@ -203,7 +203,7 @@ go test -race ./...   # crypto, protocol and full client↔server tests
 **Releases are built by GitHub Actions** (`.github/workflows/build.yml`).
 - **Every push:** runs the tests and builds everything, including the Windows installer with Inno Setup on a Windows runner. The installer is smoke-tested by a silent install, launching the app, a single-instance check and an uninstall.
 - **Publishing a release:** create a version tag. Either:
-  - on GitHub: *Releases → Draft a new release*, type a new tag such as `v3.0.1` (target `main`) and publish; or
+  - on GitHub: *Releases → Draft a new release*, type a new tag such as `v3.0.1` (target `main`) and publish. Use the form `v` + `major.minor.patch` with no extra dot; the build stops with a clear message if the tag isn't a valid version. Or
   - with git: `git tag v3.0.1 && git push origin v3.0.1`.
 
   Within a few minutes the workflow attaches the installer, portable exe,

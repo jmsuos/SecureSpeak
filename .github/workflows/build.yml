@@ -29,14 +29,19 @@ jobs:
       - id: v
         run: |
           base=$(tr -d ' \n' < VERSION)
-          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
-            version="${GITHUB_REF_NAME#v}"
+          if [[ "$GITHUB_REF" == refs/tags/* ]]; then
+            # accept v3.1.1, V3.1.1 and v.3.1.1 -> 3.1.1
+            version=$(echo "$GITHUB_REF_NAME" | sed -E 's/^[vV]\.?//')
           else
             version="${base}-dev.${GITHUB_RUN_NUMBER}"
           fi
+          if ! [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+([-+][0-9A-Za-z.-]+)?$ ]]; then
+            echo "::error title=Invalid version::Tag '$GITHUB_REF_NAME' gives version '$version'. Use a tag like v3.1.1 (major.minor.patch)."
+            exit 1
+          fi
           core="${version%%[-+]*}"
           numeric="${core}.${GITHUB_RUN_NUMBER}"
-          [[ "$GITHUB_REF" == refs/tags/v* ]] && numeric="${core}.0"
+          [[ "$GITHUB_REF" == refs/tags/* ]] && numeric="${core}.0"
           echo "version=$version" >> "$GITHUB_OUTPUT"
           echo "numeric=$numeric" >> "$GITHUB_OUTPUT"
           echo "::notice title=Version::$version ($numeric)"
