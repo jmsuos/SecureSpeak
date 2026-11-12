@@ -3,13 +3,20 @@
 # modules), plus dpkg-deb for the .deb packages (optional).
 set -e
 cd "$(dirname "$0")"
-VERSION=${VERSION:-3.0.0}
-LDFLAGS="-s -w"
+# Usage: ./build.sh [all|linux|windows]   (default: all)
+# The Windows installer is built by CI (.github/workflows/build.yml) or on
+# Windows with Inno Setup: ISCC installer\securespeak.iss
+TARGET=${1:-all}
+VERSION=${VERSION:-$(tr -d ' \n' < VERSION)}
+LDFLAGS="-s -w -X main.version=$VERSION"
 export CGO_ENABLED=0
 rm -rf dist && mkdir -p dist/windows dist/linux-client dist/linux-server
 
-# Windows client
-GOOS=windows GOARCH=amd64 go build -trimpath -ldflags "$LDFLAGS -H windowsgui" -o dist/windows/SecureSpeak.exe ./cmd/securespeak
+if [ "$TARGET" = all ] || [ "$TARGET" = windows ]; then
+  # Windows client (portable exe; CI additionally embeds icon + version info)
+  GOOS=windows GOARCH=amd64 go build -trimpath -ldflags "$LDFLAGS -H windowsgui" -o dist/windows/SecureSpeak.exe ./cmd/securespeak
+fi
+[ "$TARGET" = windows ] && exit 0
 
 # Linux client
 GOOS=linux GOARCH=amd64 go build -trimpath -ldflags "$LDFLAGS" -o dist/linux-client/securespeak ./cmd/securespeak
@@ -17,8 +24,8 @@ GOOS=linux GOARCH=arm64 go build -trimpath -ldflags "$LDFLAGS" -o dist/linux-cli
 cp deploy/linux/securespeak.desktop deploy/linux/securespeak.svg deploy/linux/install-client.sh dist/linux-client/
 
 # Linux server
-GOOS=linux GOARCH=amd64 go build -trimpath -ldflags "$LDFLAGS" -o dist/linux-server/securespeak-server ./cmd/securespeak-server
-GOOS=linux GOARCH=arm64 go build -trimpath -ldflags "$LDFLAGS" -o dist/linux-server/securespeak-server-arm64 ./cmd/securespeak-server
+GOOS=linux GOARCH=amd64 go build -trimpath -ldflags "-s -w" -o dist/linux-server/securespeak-server ./cmd/securespeak-server
+GOOS=linux GOARCH=arm64 go build -trimpath -ldflags "-s -w" -o dist/linux-server/securespeak-server-arm64 ./cmd/securespeak-server
 cp deploy/securespeak.service deploy/install-server.sh dist/linux-server/
 
 # .deb packages for Ubuntu / Linux Mint / Debian

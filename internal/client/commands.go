@@ -18,6 +18,9 @@ import (
 	"securespeak/internal/proto"
 )
 
+// AppVersion is set by the main package (from the build).
+var AppVersion = "dev"
+
 type uiClient struct {
 	ID          uint32   `json:"id"`
 	Nick        string   `json:"nick"`
@@ -81,6 +84,7 @@ type uiState struct {
 	DownloadDir     string              `json:"downloadDir"`
 	Avatar          string              `json:"avatar"`
 	Platform        string              `json:"platform"`
+	Version         string              `json:"version"`
 	KeyProtected    bool                `json:"keyProtected"`
 	MaxClients      int                 `json:"maxClients"`
 }
@@ -94,7 +98,7 @@ func (c *Client) stateLocked() uiState {
 		Audio: c.cfg.Audio, PTTKeyName: hotkey.Name(c.cfg.Audio.PTTKey),
 		HotkeySupported: hotkey.Supported(), HotkeyInfo: hotkey.Info(),
 		Whisper: []uiWhisper{}, DownloadDir: c.downloadDirLocked(), Avatar: c.avatarHash,
-		Platform:     runtime.GOOS,
+		Platform: runtime.GOOS, Version: AppVersion,
 		KeyProtected: platform.ProtectsSecrets,
 		Channels:     []proto.ChannelInfo{}, Clients: []uiClient{},
 		Perms: []string{}, Roles: []proto.RoleInfo{}, PermCatalog: proto.PermCatalog,

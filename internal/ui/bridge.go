@@ -121,6 +121,13 @@ func (b *Bridge) Listen() (string, error) {
 	mux.HandleFunc("/events", b.events)
 	mux.HandleFunc("/api", b.api)
 	mux.HandleFunc("/audio", b.audioWS)
+	mux.HandleFunc("/ping", func(w http.ResponseWriter, r *http.Request) {
+		if !b.authorized(r) {
+			http.Error(w, "forbidden", http.StatusForbidden)
+			return
+		}
+		w.Write([]byte("securespeak"))
+	})
 	mux.HandleFunc("/upload", b.upload)
 	mux.HandleFunc("/avatar", b.avatar)
 	srv := &http.Server{Handler: b.guard(mux), ReadHeaderTimeout: 10 * time.Second}
