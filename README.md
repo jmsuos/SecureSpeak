@@ -183,11 +183,13 @@ go test -race ./...   # crypto, protocol and full client↔server tests
 
 **Releases are built by GitHub Actions** (`.github/workflows/build.yml`).
 - **Every push:** runs the tests and builds everything, including the Windows installer with Inno Setup on a Windows runner. The installer is smoke-tested by a silent install, launching the app, a single-instance check and an uninstall.
-- **Publishing a release:** push a version tag:
+- **Publishing a release:** create a version tag. Either:
+  - on GitHub: *Releases → Draft a new release*, type a new tag such as `v3.0.1` (target `main`) and publish; or
+  - with git: `git tag v3.0.1 && git push origin v3.0.1`.
 
-```sh
-echo 3.0.1 > VERSION && git commit -am "Release 3.0.1" && git tag v3.0.1 && git push --follow-tags
-```
+  Within a few minutes the workflow attaches the installer, portable exe,
+  `.deb` packages and Linux tarballs to the release. Bump `VERSION` for the
+  next development builds.
 
 ```
 cmd/securespeak          client (Windows + Linux)
