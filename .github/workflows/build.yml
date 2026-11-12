@@ -81,6 +81,7 @@ jobs:
             dist/linux-client/install-client.sh
             dist/linux-client/securespeak.desktop
             dist/linux-client/securespeak.svg
+            dist/linux-client/LICENSE
             dist/linux-server/*
           if-no-files-found: error
 
@@ -111,7 +112,7 @@ jobs:
             --product-name SecureSpeak `
             --file-description "SecureSpeak - encrypted voice chat" `
             --original-filename SecureSpeak.exe `
-            --copyright "SecureSpeak contributors" `
+            --copyright "Copyright (C) 2026 jmsuos and SecureSpeak contributors. GPL-3.0" `
             --product-version $env:VERSION_NUM `
             --file-version $env:VERSION_NUM
           if ($LASTEXITCODE -ne 0) { throw "go-winres failed" }
@@ -209,8 +210,9 @@ jobs:
           cp artifacts/windows/windows/SecureSpeak.exe "release/SecureSpeak-${{ needs.version.outputs.version }}-portable.exe"
           cp artifacts/linux/linux-client/*.deb release/
           (cd artifacts/linux/linux-client && tar czf "../../../release/securespeak-client-${{ needs.version.outputs.version }}-linux.tar.gz" \
-            securespeak securespeak-arm64 install-client.sh securespeak.desktop securespeak.svg)
+            securespeak securespeak-arm64 install-client.sh securespeak.desktop securespeak.svg LICENSE)
           (cd artifacts/linux/linux-server && tar czf "../../../release/securespeak-server-${{ needs.version.outputs.version }}-linux.tar.gz" .)
+          cp LICENSE release/LICENSE.txt
           (cd release && sha256sum * > SHA256SUMS)
           ls -l release
       - name: Publish GitHub Release

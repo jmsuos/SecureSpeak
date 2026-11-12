@@ -232,3 +232,17 @@ internal/ui              local bridge (HTTP, SSE, WebSocket) + web UI, audio eng
   sender must stay online until recipients finish downloading.
 - Not built yet: a server-side channel file browser, recording, a tray icon and
   a macOS client.
+
+## License
+
+SecureSpeak is free software: you can redistribute it and/or modify it under
+the terms of the **GNU General Public License, version 3** as published by the
+Free Software Foundation. See [`LICENSE`](LICENSE) for the full text.
+
+In short: you may use, study, share and change it. If you distribute it, or a
+modified version, you must provide the source code under the same license.
+
+Copyright © 2026 jmsuos and SecureSpeak contributors.
+
+Security problems: please report them privately as described in
+[`SECURITY.md`](SECURITY.md).
