@@ -1164,7 +1164,8 @@ async function openSettings(initialTab) {
       el('div', { class: 'actions' }, el('button', {
         class: 'btn danger', disabled: S.connected, title: S.connected ? 'Disconnect first' : '',
         onclick: async () => { if (await confirmModal('New identity', 'Generate a new identity key? People who verified you will see you as unverified.', 'Generate', true)) act('new_identity'); },
-      }, icon('key'), 'Generate new identity')));
+      }, icon('key'), 'Generate new identity')),
+      el('div', { class: 'hint', style: 'margin-top:14px', text: 'SecureSpeak ' + (S.version || 'dev') + ' · ' + S.platform }));
   }
 
   settingsView = {
