@@ -103,6 +103,7 @@ type Server struct {
 	CertFP  string
 
 	mu       sync.RWMutex
+	logs     logStore
 	cfg      *Config
 	channels map[uint32]*Channel
 	clients  map[uint32]*Client
@@ -146,6 +147,7 @@ func New(dataDir string) (*Server, error) {
 		},
 	}
 	s.nextRole = 1
+	s.logs.open(dataDir)
 	s.loadChannels()
 	s.loadBans()
 	s.loadRoles()
@@ -158,7 +160,7 @@ func (s *Server) loadChannels() {
 	var list []*Channel
 	if b, err := os.ReadFile(filepath.Join(s.dataDir, "channels.json")); err == nil {
 		if err := json.Unmarshal(b, &list); err != nil {
-			s.Logf("channels.json: %v", err)
+			s.logf("channels.json: %v", err)
 		}
 	}
 	for _, c := range list {
@@ -239,7 +241,7 @@ func (s *Server) saveChannelsLocked() {
 		}
 	}
 	if err := SaveJSON(filepath.Join(s.dataDir, "channels.json"), list); err != nil {
-		s.Logf("save channels: %v", err)
+		s.logf("save channels: %v", err)
 	}
 }
 
@@ -254,7 +256,7 @@ func (s *Server) saveBansLocked() {
 		s.bans = []Ban{}
 	}
 	if err := SaveJSON(filepath.Join(s.dataDir, "bans.json"), s.bans); err != nil {
-		s.Logf("save bans: %v", err)
+		s.logf("save bans: %v", err)
 	}
 }
 
@@ -317,8 +319,8 @@ func (s *Server) Listen() error {
 	if err != nil {
 		return fmt.Errorf("tcp listen: %w", err)
 	}
-	s.Logf("listening on tcp %s, udp %s", s.tcp.Addr(), s.udp.LocalAddr())
-	s.Logf("certificate fingerprint (SHA-256): %s", s.CertFP)
+	s.logf("SecureSpeak server started, listening on tcp %s, udp %s", s.tcp.Addr(), s.udp.LocalAddr())
+	s.logf("certificate fingerprint (SHA-256): %s", s.CertFP)
 	return nil
 }
 
@@ -331,7 +333,7 @@ func (s *Server) Serve() error {
 			if errors.Is(err, net.ErrClosed) {
 				return nil
 			}
-			s.Logf("accept: %v", err)
+			s.logf("accept: %v", err)
 			time.Sleep(100 * time.Millisecond)
 			continue
 		}
@@ -359,6 +361,7 @@ func (s *Server) Close() {
 		c.close()
 	}
 	s.mu.RUnlock()
+	s.logs.close()
 }
 
 // Start listens and serves in the background (used by tests).
@@ -539,7 +542,7 @@ func (s *Server) handleConn(raw net.Conn) {
 			// of the same identity would otherwise push each other out forever)
 			o.send(proto.TKicked, proto.Kicked{Reason: "You connected again with the same identity (from another window or computer)."})
 			go func(o *Client) { time.Sleep(time.Second); o.close() }(o)
-			s.Logf("client %d %q replaced by a new connection of the same identity", id, o.Nick)
+			s.logf("client %d %q replaced by a new connection of the same identity", id, o.Nick)
 		}
 	}
 	if len(s.clients) >= s.cfg.MaxClients {
@@ -580,7 +583,7 @@ func (s *Server) handleConn(raw net.Conn) {
 	s.broadcastLocked(proto.TClientJoin, s.clientInfo(c), c.ID)
 	s.mu.Unlock()
 
-	s.Logf("client %d %q connected from %s", c.ID, c.Nick, ip)
+	s.logf("client %d %q connected from %s", c.ID, c.Nick, ip)
 	s.readLoop(c, br)
 
 	// disconnect
@@ -593,7 +596,7 @@ func (s *Server) handleConn(raw net.Conn) {
 		s.cleanupTempLocked(old)
 	}
 	s.mu.Unlock()
-	s.Logf("client %d %q disconnected", c.ID, c.Nick)
+	s.logf("client %d %q disconnected", c.ID, c.Nick)
 }
 
 func (s *Server) udpPort() int {
@@ -856,6 +859,10 @@ func (s *Server) handle(c *Client, m proto.Message) bool {
 	case proto.TChanCreate:
 		if cc, ok := decode[proto.ChanCreate](m); ok {
 			s.chanCreate(c, cc)
+		}
+	case proto.TLogs:
+		if r, ok := decode[proto.Logs](m); ok {
+			s.sendLogs(c, r.Since)
 		}
 	case proto.TChanIcon:
 		if ci, ok := decode[proto.ChanIcon](m); ok {
@@ -1301,7 +1308,7 @@ func (s *Server) handleAdmin(c *Client, m proto.Message) bool {
 		}
 		if k.Server {
 			t.send(proto.TKicked, proto.Kicked{Reason: cleanName(k.Reason, 120), By: c.Nick})
-			s.Logf("%q kicked %q from server: %s", c.Nick, t.Nick, k.Reason)
+			s.logf("%q kicked %q from server: %s", c.Nick, t.Nick, k.Reason)
 			go func() { time.Sleep(200 * time.Millisecond); t.close() }()
 		} else {
 			def := s.defaultChannelLocked()
@@ -1332,7 +1339,7 @@ func (s *Server) handleAdmin(c *Client, m proto.Message) bool {
 				go func() { time.Sleep(200 * time.Millisecond); o.close() }()
 			}
 		}
-		s.Logf("%q banned %q (%s) for %d min: %s", c.Nick, t.Nick, t.ip, b.Minutes, ban.Reason)
+		s.logf("%q banned %q (%s) for %d min: %s", c.Nick, t.Nick, t.ip, b.Minutes, ban.Reason)
 	case proto.TBanList:
 		var l proto.BanList
 		for _, b := range s.bans {
@@ -1385,7 +1392,7 @@ func (s *Server) handleAdmin(c *Client, m proto.Message) bool {
 		}
 		s.cfg.WelcomeMessage = cleanText(se.WelcomeMsg, 2000)
 		if err := SaveJSON(s.cfgPath, s.cfg); err != nil {
-			s.Logf("save config: %v", err)
+			s.logf("save config: %v", err)
 		}
 		s.broadcastLocked(proto.TServerUpdate, s.serverEditLocked(), 0)
 	case proto.TServerPw:
@@ -1403,7 +1410,7 @@ func (s *Server) handleAdmin(c *Client, m proto.Message) bool {
 			s.cfg.ServerPasswordHash = HashPassword(sp.Password)
 		}
 		if err := SaveJSON(s.cfgPath, s.cfg); err != nil {
-			s.Logf("save config: %v", err)
+			s.logf("save config: %v", err)
 			c.sendErr("password", "could not save the server configuration")
 			return true
 		}
@@ -1413,7 +1420,7 @@ func (s *Server) handleAdmin(c *Client, m proto.Message) bool {
 		}
 		c.send(proto.TNotice, proto.Notice{Msg: msg})
 		s.broadcastLocked(proto.TServerUpdate, s.serverEditLocked(), 0)
-		s.Logf("%q %s the server password", c.Nick, map[bool]string{true: "removed", false: "changed"}[sp.Remove])
+		s.logf("%q %s the server password", c.Nick, map[bool]string{true: "removed", false: "changed"}[sp.Remove])
 	default:
 		c.sendErr("protocol", "unknown message "+m.T)
 	}

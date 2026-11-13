@@ -11,6 +11,7 @@ const (
 	PermChannelDelete     = "channel.delete"
 	PermChannelJoinAny    = "channel.join.any"
 	PermChannelIcon       = "channel.icon"
+	PermServerLogs        = "server.logs"
 
 	PermVoiceSpeak   = "voice.speak"
 	PermVoiceWhisper = "voice.whisper"
@@ -72,6 +73,7 @@ var PermCatalog = []PermInfo{
 	{PermTokensCreate, "Administration", "Create privilege keys"},
 	{PermServerEdit, "Administration", "Edit server name and welcome message"},
 	{PermServerPassword, "Administration", "Change the server password"},
+	{PermServerLogs, "Administration", "View the server logs"},
 }
 
 // PowerOwner is the effective power of the server owner: above every role.

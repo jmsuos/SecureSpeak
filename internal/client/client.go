@@ -874,6 +874,11 @@ func (c *Client) handleMsg(s *session, m proto.Message) {
 		if n, ok := unmarshal[proto.Notice](m); ok {
 			c.system(n.Msg)
 		}
+	case proto.TLogs:
+		stateChanged = false
+		if l, ok := unmarshal[proto.Logs](m); ok {
+			c.em.Emit("logs", l)
+		}
 	case proto.TBanList:
 		stateChanged = false
 		if bl, ok := unmarshal[proto.BanList](m); ok {

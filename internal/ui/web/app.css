@@ -410,3 +410,11 @@ video.media-thumb { cursor: default; }
 .q-custom select { flex: 1; height: 32px; border-radius: 7px; border: 1px solid var(--line); background: var(--bg); padding: 0 9px; outline: none; color-scheme: dark; }
 .q-custom select:focus { border-color: var(--accent); }
 .slider-row input[type=range] { flex: 1; }
+
+/* ---- server logs ---- */
+.logs-bar { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; }
+.logs-bar input[type=search] { flex: 1; height: 32px; border-radius: 7px; border: 1px solid var(--line); background: var(--bg); padding: 0 10px; outline: none; }
+.logs-bar input[type=search]:focus { border-color: var(--accent); }
+.logs { height: min(52vh, 460px); overflow: auto; background: var(--bg); border: 1px solid var(--line); border-radius: 8px; padding: 6px 8px; font: 12px/1.55 ui-monospace, SFMono-Regular, Consolas, monospace; user-select: text; }
+.log-line { white-space: pre-wrap; overflow-wrap: anywhere; }
+.log-line .log-t { color: var(--faint); margin-right: 10px; }

@@ -515,6 +515,10 @@ func (c *Client) HandleCommand(cmd string, raw json.RawMessage) (any, error) {
 			return nil
 		})
 
+	case "server_logs":
+		since := uint64(a.num("since"))
+		return nil, c.withSession(func(s *session) error { s.send(proto.TLogs, proto.Logs{Since: since}); return nil })
+
 	case "ban_list":
 		return nil, c.withSession(func(s *session) error { s.send(proto.TBanList, struct{}{}); return nil })
 

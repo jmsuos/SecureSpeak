@@ -43,7 +43,7 @@ const SS = {
   aDecoder: null, aFrames: 0, shareVolume: 1, shareMuted: false,
   onChange: null,
 
-  async start() {
+  async start(quality) {
     if (this.sharing) return;
     if (typeof VideoEncoder === 'undefined') throw new Error('Screen sharing needs a browser engine with WebCodecs (Edge/Chrome 94+).');
     // Ask for sound too. On Windows the share dialog offers "Also share
@@ -53,7 +53,7 @@ const SS = {
     const sup = navigator.mediaDevices.getSupportedConstraints ? navigator.mediaDevices.getSupportedConstraints() : {};
     const audio = { echoCancellation: false, noiseSuppression: false, autoGainControl: false, channelCount: 2 };
     if (sup.restrictOwnAudio) audio.restrictOwnAudio = true;
-    this.q = this.quality();
+    this.q = quality ? this.quality(quality) : this.quality();
     this.fps = this.q.fps;
     this.rateScale = 1;
     this.viewers = new Map();
@@ -96,8 +96,8 @@ const SS = {
   changed() { if (this.onChange) this.onChange(); },
 
   // the user's quality setting (S.share from the core)
-  quality() {
-    const q = (typeof S !== 'undefined' && S && S.share) || { preset: 'smooth' }; // S is app.js's state (not on window)
+  quality(choice) {
+    const q = choice || (typeof S !== 'undefined' && S && S.share) || { preset: 'smooth' }; // S is app.js's state (not on window)
     const base = q.preset === 'custom'
       ? { fps: q.fps || 30, height: q.height, mbps: q.mbps || 8, hint: (q.fps || 30) >= 30 ? 'motion' : 'detail' }
       : SHARE_PRESETS[q.preset] || SHARE_PRESETS.smooth;

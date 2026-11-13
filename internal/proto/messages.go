@@ -35,6 +35,7 @@ const (
 	TFileData    = "file_data"       // both directions: E2E-encrypted file chunk
 	TChanIcon    = "chan_icon"       // set or remove a permanent channel's icon
 	TIconGet     = "icon_get"        // ask for a custom channel icon by hash
+	TLogs        = "logs"            // both directions: request (since) / server log lines
 
 	// server -> client
 	TWelcome      = "welcome"
@@ -70,6 +71,19 @@ type ChannelInfo struct {
 	Order       int    `json:"order,omitempty"`
 	Owner       uint32 `json:"owner,omitempty"`
 	Icon        string `json:"icon,omitempty"` // "std:<name>" built-in icon, "img:<sha256 hex>" custom PNG
+}
+
+// LogLine is one line of the server log.
+type LogLine struct {
+	Seq  uint64 `json:"seq"`
+	Time int64  `json:"t"` // unix seconds
+	Text string `json:"text"`
+}
+
+// Logs requests log lines newer than Since, or carries them.
+type Logs struct {
+	Since uint64    `json:"since,omitempty"`
+	Lines []LogLine `json:"lines,omitempty"`
 }
 
 // ChanIcon sets a channel icon: Icon "std:<name>", or PNG for a custom one,

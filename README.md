@@ -1,6 +1,6 @@
 <p align="center"><img src="assets/securespeak-logo.png" alt="SecureSpeak" width="320"></p>
 
-# SecureSpeak 3.6
+# SecureSpeak 3.7
 
 A TeamSpeak-style voice and text server with end-to-end encryption. There are no
 accounts: you pick a nickname and connect. The server relays encrypted packets
@@ -12,9 +12,19 @@ and can never hear, read or fake anything.
 | Client | Ubuntu, Linux Mint, Debian (amd64/arm64) | `linux-client/securespeak_3.0.0_amd64.deb`, or the portable binary + `install-client.sh` |
 | Server | Linux (amd64/arm64) | `linux-server/securespeak-server` + `install-server.sh` |
 
+## What's new in 3.7
+
+- **Server password in Edit server:** set, change or remove it in the same window as the server name and welcome message.
+- **Choose the quality when you share:** clicking **Share screen** asks for Sharp, Smooth, Gaming or Custom and whether to use the GPU, then lets you pick the screen. Your last choice is remembered.
+- **Server logs** (*Admin → Server logs*):
+  - **What you see:** the last 5000 log lines, kept across restarts.
+  - **Tools:** live updates, a filter, and a download button.
+  - **Where they're stored:** `/var/lib/securespeak/logs/`, rotated at 5 MB.
+  - **Who can see them:** a new permission, *View the server logs*. Roles that can edit the server get it automatically.
+
 ## What's new in 3.6
 
-- **Screen share quality** (*Settings → Screen share*):
+- **Screen share quality** (chosen when you start sharing):
   - **Sharp:** 15 fps, for text and code.
   - **Smooth:** 30 fps, the new default.
   - **Gaming:** 60 fps at 10 Mbit/s.
