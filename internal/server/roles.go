@@ -70,7 +70,7 @@ func defaultRoles(allowTemp bool) []*Role {
 		guest = append(guest, proto.PermChannelCreateTemp)
 	}
 	mod := append(append([]string{}, guest...),
-		proto.PermChannelCreateTemp, proto.PermChannelCreatePerm, proto.PermChannelEdit, proto.PermChannelJoinAny,
+		proto.PermChannelCreateTemp, proto.PermChannelCreatePerm, proto.PermChannelEdit, proto.PermChannelJoinAny, proto.PermChannelIcon,
 		proto.PermClientMove, proto.PermClientKickChannel, proto.PermClientKickServer, proto.PermClientMute,
 		proto.PermClientBan, proto.PermBanList)
 	return []*Role{
@@ -135,7 +135,7 @@ func (s *Server) loadRoles() {
 // migrateRolesLocked gives existing roles the permissions added in later
 // versions, mirroring what they could already do. Runs once per schema bump.
 func (s *Server) migrateRolesLocked() {
-	const current = 2
+	const current = 3
 	if s.cfg.RolesSchema >= current {
 		return
 	}
@@ -144,11 +144,14 @@ func (s *Server) migrateRolesLocked() {
 		for _, p := range r.Perms {
 			has[p] = true
 		}
-		if has[proto.PermServerEdit] { // 3.1: server password
+		if has[proto.PermServerEdit] && s.cfg.RolesSchema < 2 { // 3.1: server password
 			has[proto.PermServerPassword] = true
 		}
-		if has[proto.PermVoiceSpeak] { // 3.1: screen share
+		if has[proto.PermVoiceSpeak] && s.cfg.RolesSchema < 2 { // 3.1: screen share
 			has[proto.PermScreenShare] = true
+		}
+		if has[proto.PermChannelEdit] { // 3.3: channel icons
+			has[proto.PermChannelIcon] = true
 		}
 		r.Perms = proto.SortedPerms(has)
 	}

@@ -219,6 +219,8 @@ type Client struct {
 
 	voiceOut atomic.Pointer[func([]byte)]
 
+	icons iconCache
+
 	mu       sync.Mutex
 	cfg      *Config
 	id       *e2e.Identity
@@ -734,6 +736,11 @@ func (c *Client) handleMsg(s *session, m proto.Message) {
 	case proto.TChanAdd, proto.TChanUpdate:
 		if ch, ok := unmarshal[proto.ChannelInfo](m); ok {
 			s.channels[ch.ID] = ch
+		}
+	case proto.TIconData:
+		stateChanged = false
+		if d, ok := unmarshal[proto.IconData](m); ok {
+			go c.icons.put(d)
 		}
 	case proto.TChanRemove:
 		if id, ok := unmarshal[proto.IDOnly](m); ok {

@@ -48,14 +48,15 @@ type Bridge struct {
 	everSub bool
 	idleAt  time.Time
 
-	VoiceIn  VoiceIn
-	VideoIn  VideoIn
-	Media    MediaSource
-	Upload   Uploader
-	Avatar   AvatarSource
-	AvatarCT func([]byte) string
-	audioMu  sync.Mutex
-	audio    map[*wsConn]chan []byte
+	VoiceIn     VoiceIn
+	VideoIn     VideoIn
+	Media       MediaSource
+	Upload      Uploader
+	Avatar      AvatarSource
+	AvatarCT    func([]byte) string
+	ChannelIcon func(hash string) []byte // custom channel icons (PNG)
+	audioMu     sync.Mutex
+	audio       map[*wsConn]chan []byte
 }
 
 // SendVoice delivers a frame to the UI audio engine (non-blocking).
@@ -140,6 +141,7 @@ func (b *Bridge) Listen() (string, error) {
 	mux.HandleFunc("/upload", b.upload)
 	mux.HandleFunc("/avatar", b.avatar)
 	mux.HandleFunc("/media", b.media)
+	mux.HandleFunc("/chicon", b.chanIcon)
 	srv := &http.Server{Handler: b.guard(mux), ReadHeaderTimeout: 10 * time.Second}
 	go srv.Serve(ln)
 	return "http://" + b.host + "/?token=" + b.Token, nil
@@ -332,6 +334,25 @@ func (b *Bridge) avatar(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", b.AvatarCT(img))
 	w.Header().Set("Cache-Control", "private, max-age=86400")
 	w.Header().Set("X-Content-Type-Options", "nosniff")
+	w.Write(img)
+}
+
+// chanIcon serves a custom channel icon: GET /chicon?h=<sha256>. The content
+// is addressed by hash, so it can be cached forever.
+func (b *Bridge) chanIcon(w http.ResponseWriter, r *http.Request) {
+	if !b.authorized(r) || b.ChannelIcon == nil {
+		http.Error(w, "forbidden", http.StatusForbidden)
+		return
+	}
+	img := b.ChannelIcon(r.URL.Query().Get("h"))
+	if img == nil {
+		http.NotFound(w, r)
+		return
+	}
+	w.Header().Set("Content-Type", "image/png")
+	w.Header().Set("Cache-Control", "private, max-age=31536000, immutable")
+	w.Header().Set("X-Content-Type-Options", "nosniff")
+	w.Header().Set("Content-Security-Policy", "default-src 'none'; sandbox")
 	w.Write(img)
 }
 

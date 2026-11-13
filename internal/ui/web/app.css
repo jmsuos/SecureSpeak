@@ -362,3 +362,21 @@ video.media-thumb { cursor: default; }
 .closing-box { display: flex; flex-direction: column; align-items: center; gap: 12px; text-align: center; }
 .closing-box > svg { width: 34px; height: 34px; color: var(--dim); }
 .closing-title { font-size: 17px; font-weight: 600; }
+
+/* ---- channel icons ---- */
+.chicon { width: 16px; height: 16px; object-fit: contain; display: block; image-rendering: auto; }
+.chicon.big { width: 20px; height: 20px; }
+.row .ico.custom svg { width: 16px; height: 16px; }
+.pw-lock { display: inline-flex; color: var(--warn); margin-left: -2px; }
+.pw-lock svg { width: 12px; height: 12px; }
+.info-title .chicon.big { width: 18px; height: 18px; flex: none; }
+.icon-preview { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border-radius: 8px; background: var(--panel-2); border: 1px solid var(--line); }
+.icon-preview .ip-ico { display: grid; place-items: center; width: 22px; height: 22px; color: var(--dim); }
+.icon-preview .ip-ico svg { width: 20px; height: 20px; }
+.icon-preview .ip-name { font-weight: 600; }
+.icon-preview .hint { margin-left: auto; }
+.icon-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(40px, 1fr)); gap: 6px; }
+.icon-pick { height: 40px; border-radius: 8px; border: 1px solid var(--line); background: var(--panel-2); display: grid; place-items: center; cursor: pointer; }
+.icon-pick svg { width: 20px; height: 20px; }
+.icon-pick:hover { background: var(--panel-3); }
+.icon-pick.on { border-color: var(--accent); box-shadow: 0 0 0 2px rgba(91, 124, 250, .35); background: rgba(91, 124, 250, .12); }
