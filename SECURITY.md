@@ -63,7 +63,10 @@ issues:
 - Server admins can moderate users with less power than they have. That is
   intended.
 - The cryptography has been tested but not independently audited.
-- The updater trusts GitHub: it downloads releases over HTTPS from this
-  repository and checks them against the release's `SHA256SUMS`. That catches
-  corrupted or swapped downloads, but someone who controls the repository could
-  publish a malicious release. Releases are not separately signed yet.
+- Release signing: when public keys are listed in
+  `internal/update/signing-keys.pem`, the updater only installs releases whose
+  `SHA256SUMS` carries a valid Ed25519 signature (`SHA256SUMS.sig`) by one of
+  those keys, so a GitHub account takeover alone can't push an update. The
+  private key is a GitHub Actions secret, so someone who can change the
+  workflows or secrets of this repository could still sign. Copies installed
+  before signing was switched on only check SHA-256 checksums.

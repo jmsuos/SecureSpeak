@@ -19,6 +19,7 @@ type State struct {
 	Error       string  `json:"error,omitempty"`
 	Kind        string  `json:"kind"`
 	Arch        string  `json:"arch"`
+	Signed      bool    `json:"signed"`     // updates must carry a valid release signature
 	CanInstall  bool    `json:"canInstall"` // an update for this install type is available
 	Reason      string  `json:"reason,omitempty"`
 	Auto        bool    `json:"auto"`
@@ -42,7 +43,7 @@ type Manager struct {
 
 func NewManager(u *Updater, emit func(State), auto func() bool) *Manager {
 	m := &Manager{U: u, Emit: emit, Auto: auto, Restart: make(chan *Pending, 1), Every: 6 * time.Hour}
-	m.st = State{Current: u.Current, Status: "idle", URL: "https://github.com/" + Repo + "/releases", Kind: u.Kind.String(), Arch: u.Arch, Reason: u.Reason}
+	m.st = State{Current: u.Current, Status: "idle", URL: "https://github.com/" + Repo + "/releases", Kind: u.Kind.String(), Arch: u.Arch, Signed: len(u.Keys) > 0, Reason: u.Reason}
 	if u.IsDev() {
 		m.st.Status = "dev"
 	}
