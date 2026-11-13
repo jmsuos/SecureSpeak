@@ -53,6 +53,10 @@ const P = {
   arrowUp: '<path d="M12 19V5M5 12l7-7 7 7"/>',
   external: '<path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6M15 3h6v6M10 14L21 3"/>',
   info: '<circle cx="12" cy="12" r="10"/><path d="M12 16v-4M12 8h.01"/>',
+  tv: '<rect x="2" y="7" width="20" height="14" rx="2"/><path d="M17 2l-5 5-5-5M10 11v6l5-3z"/>',
+  play: '<path d="M6 4l14 8-14 8z"/>',
+  music2: '<path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/>',
+  upload: '<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M17 8l-5-5-5 5M12 3v12"/>',
   globe: '<circle cx="12" cy="12" r="10"/><path d="M2 12h20M12 2a15 15 0 0 1 0 20 15 15 0 0 1 0-20z"/>',
 };
 // Built-in channel icons: name -> [label, color, svg markup]
@@ -196,6 +200,8 @@ function handle({ t, d }) {
   switch (t) {
     case 'state': onState(d); break;
     case 'update': onUpdate(d); break;
+    case 'watch': W.onMessage(d.from, d.fromNick, d.data); break;
+    case 'peer_sound': AE.playFile(d.hash, 'peer'); break;
     case 'closing': onClosing(d); break;
     case 'talking': talking = new Set(d.ids); whispering = new Set(d.whisper); selfWhisper = d.selfWhisper; updateTalking(); break;
     case 'keys': AE.pttKey = d.ptt; AE.whisperKey = d.whisper; break;
@@ -236,6 +242,9 @@ function onState(d) {
     lastChannel = S.myChannel;
   }
   if (!S.connected) lastChannel = 0;
+  AE.customSounds = S.appSounds || {};
+  if (!S.connected) { if (W.session) W.end(); }
+  else W.check((id) => id === S.myID ? true : S.clients.some((c) => c.id === id && c.channel === S.myChannel));
   if (selected && selected.type === 'client' && !userById(selected.id)) selected = null;
   if (selected && selected.type === 'channel' && !chanById(selected.id)) selected = null;
   renderAll();
@@ -287,6 +296,7 @@ function renderToolbar() {
   $('btn-admin').disabled = !c;
   $('btn-admin').title = staff ? 'Server administration' : 'Redeem a privilege key';
   btnContent($('btn-settings'), 'sliders', 'Settings');
+  renderWatchButton();
   if (updateAvailable()) $('btn-settings').append(el('span', { class: 'update-dot', title: 'Update available' }));
   $('btn-quit').replaceChildren(icon('power'));
   $('btn-new-channel').replaceChildren(icon('folderPlus'));
@@ -1220,7 +1230,7 @@ async function openSettings(initialTab) {
   let lvlRefs = null;
 
   const render = () => {
-    tabsBar.replaceChildren(...[['audio', 'Audio & voice'], ['whisper', 'Whisper'], ['general', 'Profile & security'], ['about', 'About SecureSpeak']].map(([k, l]) => {
+    tabsBar.replaceChildren(...[['audio', 'Audio & voice'], ['sounds', 'Sounds'], ['whisper', 'Whisper'], ['general', 'Profile & security'], ['about', 'About SecureSpeak']].map(([k, l]) => {
       const b = el('button', { class: (k === tab ? 'on' : '') + (k === 'about' && updateAvailable() ? ' has-update' : ''), text: l });
       b.onclick = () => { tab = k; if (k === 'about') checkForUpdates(); render(); };
       return b;
@@ -1230,6 +1240,7 @@ async function openSettings(initialTab) {
     if (tab === 'audio') renderAudioTab();
     else if (tab === 'whisper') renderWhisperTab(view);
     else if (tab === 'about') renderAboutTab(view);
+    else if (tab === 'sounds') renderSoundsTab(view);
     else renderGeneralTab();
   };
 
@@ -1343,7 +1354,7 @@ async function openSettings(initialTab) {
   }
 
   settingsView = {
-    refresh: () => { if (!document.activeElement || document.activeElement.type !== 'range') render(); },
+    refresh: () => { const ae = document.activeElement; if (!ae || (ae.type !== 'range' && !(ae.tagName === 'INPUT' && ae.type === 'text' && view.contains(ae)))) render(); },
     update: () => { if (tab === 'about') render(); else tabsBar.querySelector('button:last-child')?.classList.toggle('has-update', updateAvailable()); },
     get aboutOpen() { return tab === 'about'; },
     level: (l) => { if (lvlRefs) { lvlRefs.lvl.style.width = dbToPct(l.db) + '%'; lvlRefs.lvl.classList.toggle('tx', l.tx); } },
@@ -1364,6 +1375,80 @@ async function openSettings(initialTab) {
   render();
   // device labels become available once the microphone permission is granted
   AE.updateMic().then(() => refreshDevices()).then(() => settingsView && settingsView.refresh());
+}
+
+// ---------------------------------------------------------------- custom sounds
+const APP_SOUNDS = [
+  ['connect', 'Connected to a server'], ['disconnect', 'Disconnected'], ['join', 'Someone joins your channel'],
+  ['leave', 'Someone leaves your channel'], ['move', 'You were moved'], ['msg', 'New message'], ['poke', 'Poke'],
+  ['file', 'File received'], ['mute', 'Microphone muted'], ['unmute', 'Microphone unmuted'], ['error', 'Error'],
+];
+
+// Lets the user pick a .wav or .mp3 (max 512 KB, max 10 s) and returns {b64, name}.
+function chooseSoundFile() {
+  return new Promise((resolve) => {
+    const input = el('input', { type: 'file', accept: '.wav,.mp3,audio/wav,audio/x-wav,audio/mpeg' });
+    input.onchange = async () => {
+      const f = input.files[0];
+      if (!f) return resolve(null);
+      if (!/\.(wav|mp3)$/i.test(f.name)) { toast('Choose a .wav or .mp3 file.', 'error'); return resolve(null); }
+      if (f.size > 512 * 1024) { toast('That sound is ' + Math.round(f.size / 1024) + ' KB; the limit is 512 KB. A short .mp3 works best.', 'error'); return resolve(null); }
+      const buf = await f.arrayBuffer();
+      try {
+        const ctx = AE.ctx || new (window.AudioContext || window.webkitAudioContext)();
+        const audio = await ctx.decodeAudioData(buf.slice(0));
+        if (audio.duration > 10.05) { toast('That sound is ' + audio.duration.toFixed(1) + ' seconds long; the limit is 10 seconds.', 'error'); return resolve(null); }
+      } catch (e) { toast('Could not read that sound file.', 'error'); return resolve(null); }
+      let bin = '';
+      const bytes = new Uint8Array(buf);
+      for (let i = 0; i < bytes.length; i += 0x8000) bin += String.fromCharCode.apply(null, bytes.subarray(i, i + 0x8000));
+      resolve({ b64: btoa(bin), name: f.name });
+    };
+    input.click();
+  });
+}
+
+async function uploadSound(slot) {
+  const f = await chooseSoundFile();
+  if (f) await act('sound_set', { slot, name: f.name, data: f.b64 });
+}
+
+function soundRow(label, ref, slot, preview, hint) {
+  return el('div', { class: 'snd-row' },
+    el('div', { class: 'snd-label' }, el('div', { text: label }),
+      el('div', { class: 'hint', style: 'margin:0', text: ref ? '🎵 ' + (ref.name || 'Custom sound') : hint })),
+    el('button', { class: 'icon-btn', type: 'button', title: 'Play', onclick: preview }, icon('play')),
+    el('button', { class: 'btn', type: 'button', onclick: () => uploadSound(slot) }, icon('upload'), ref ? 'Replace' : 'Upload'),
+    ref && el('button', { class: 'btn', type: 'button', title: 'Back to the default', onclick: () => act('sound_set', { slot }) }, icon('x'), slot.startsWith('app:') ? 'Reset' : 'Remove'));
+}
+
+function renderSoundsTab(view) {
+  const play = (ref, fallback) => () => {
+    const on = S.audio.sounds; S.audio.sounds = true;
+    if (ref) AE.playFile(ref.hash); else if (fallback) AE.sound(fallback);
+    S.audio.sounds = on;
+  };
+  const leave = el('input', { maxlength: 80, value: S.leaveMessage || '', placeholder: 'e.g. Goodnight everyone!' });
+  let leaveT = 0;
+  leave.oninput = () => { clearTimeout(leaveT); leaveT = setTimeout(() => act('leave_msg', { text: leave.value }), 600); };
+  leave.onchange = () => { clearTimeout(leaveT); act('leave_msg', { text: leave.value }); };
+  add(view,
+    !S.audio.sounds && el('div', { class: 'callout warn', text: 'Notification sounds are switched off in Audio & voice, so none of these sounds will play.' }),
+    el('div', { class: 'section-title', style: 'margin-top:4px', text: 'When you join and leave a server' }),
+    el('div', { class: 'snd-list' },
+      soundRow('Your entrance sound', S.joinSound, 'join', play(S.joinSound, 'connect'), 'Others hear this when you connect'),
+      soundRow('Your exit sound', S.leaveSound, 'leave', play(S.leaveSound, 'disconnect'), 'Others hear this when you leave')),
+    el('div', { class: 'field', style: 'margin-top:12px' },
+      el('label', { text: 'Leave message (shown to everyone when you disconnect, like in TeamSpeak)' }), leave),
+    el('div', { class: 'hint', text: 'Your sounds and leave message are sent end-to-end encrypted to the people on the server; the server can\'t hear or read them. .wav or .mp3, at most 512 KB and 10 seconds.' }),
+    el('label', { class: 'check', style: 'margin-top:12px' },
+      el('input', { type: 'checkbox', checked: S.peerSounds, onchange: (e) => act('peer_sounds', { on: e.target.checked }) }),
+      'Play other people\'s entrance and exit sounds'),
+    el('div', { class: 'section-title', text: 'App sounds (only on this computer)' }),
+    el('div', { class: 'snd-list' }, ...APP_SOUNDS.map(([k, label]) => {
+      const ref = (S.appSounds || {})[k];
+      return soundRow(label, ref, 'app:' + k, play(ref, k), 'Default sound');
+    })));
 }
 
 // ---------------------------------------------------------------- updates & quitting
@@ -1967,6 +2052,73 @@ function renderStage() {
 }
 
 SS.onChange = () => { renderShareButton(); renderStage(); renderTree(); };
+
+// ---------------------------------------------------------------- watch YouTube together
+W.send = (data) => act('watch_send', { data });
+W.me = () => (S ? S.myID : 0);
+W.nickOf = (id) => (S && id === S.myID ? S.nickname : (userById(id) || {}).nick || '');
+W.onChange = () => { renderWatchButton(); renderWatchStage(); };
+
+function renderWatchButton() {
+  const b = $('btn-watch');
+  if (!S) return;
+  const s = W.session;
+  b.classList.toggle('hidden', !S.connected || (!s && !can('watch.together')));
+  b.classList.toggle('sharing', !!s && W.joined);
+  b.classList.toggle('invite', !!s && !W.joined);
+  btnContent(b, 'tv', !s ? 'Watch together' : W.joined ? 'Watching' : 'Join ' + (s.hostNick || 'video'));
+}
+
+$('btn-watch').onclick = async () => {
+  if (W.session) {
+    if (W.joined) renderWatchStage(true);
+    else W.join();
+    return;
+  }
+  const url = await promptModal({ title: 'Watch YouTube together', icon: 'tv', label: 'YouTube link (everyone in your channel can join)', ok: 'Start' });
+  if (url == null) return;
+  const v = W.parseVideo(url);
+  if (!v) return toast('That doesn’t look like a YouTube link.', 'error');
+  W.start(v);
+};
+
+function renderWatchStage(focus) {
+  const st = $('yt-stage');
+  const s = W.session;
+  if (!s || !W.joined || !W.iframe) { st.classList.add('hidden'); st.replaceChildren(); st.dataset.frame = ''; return; }
+  const host = W.isHost();
+  const title = s.title || W.player.title || 'YouTube';
+  const volVal = el('span', { class: 'val', text: W.volume + '%' });
+  const vol = el('input', { type: 'range', min: 0, max: 100, step: 5, value: W.volume, title: 'Volume (only for you)' });
+  vol.oninput = () => { W.setVolume(+vol.value); volVal.textContent = vol.value + '%'; };
+  const mute = el('button', { class: 'icon-btn', title: 'Mute (only for you)' }, icon(W.muted ? 'volX' : 'vol'));
+  mute.onclick = () => { W.setMuted(!W.muted); mute.replaceChildren(icon(W.muted ? 'volX' : 'vol')); };
+  const bar = el('div', { class: 'stage-bar' },
+    el('span', { class: 'badge live yt', text: 'YOUTUBE' }),
+    el('span', { class: 'stage-title', text: title }),
+    el('span', { class: 'hint', style: 'margin:0', text: host ? 'You control playback' : 'Controlled by ' + s.hostNick }),
+    el('span', { class: 'spacer' }),
+    el('span', { class: 'stage-audio' }, mute, vol, volVal),
+    el('button', { class: 'btn', title: 'Sign in to YouTube in the SecureSpeak window. With YouTube Premium the player shows no ads.', onclick: () => act('yt_signin') }, icon('user'), 'YouTube sign-in'),
+    host && el('button', { class: 'btn', onclick: async () => {
+      const url = await promptModal({ title: 'Change video', icon: 'tv', label: 'YouTube link', ok: 'Play' });
+      const v = url != null && W.parseVideo(url);
+      if (url != null && !v) return toast('That doesn’t look like a YouTube link.', 'error');
+      if (v) W.start(v);
+    } }, icon('edit'), 'Change video'),
+    host ? el('button', { class: 'btn danger', onclick: () => W.stop() }, icon('x'), 'Stop for everyone')
+      : el('button', { class: 'btn', onclick: () => W.leave() }, icon('x'), 'Leave'));
+  let view = st.querySelector('.stage-view');
+  if (st.dataset.frame !== s.video + '|' + host || !view || !view.contains(W.iframe)) {
+    view = el('div', { class: 'stage-view yt-view' }, W.iframe, !host && el('div', { class: 'yt-shield', title: 'Playback is controlled by ' + s.hostNick }));
+    st.replaceChildren(bar, view);
+    st.dataset.frame = s.video + '|' + host;
+  } else {
+    st.replaceChild(bar, st.querySelector('.stage-bar'));
+  }
+  st.classList.remove('hidden');
+  if (focus) st.scrollIntoView({ block: 'nearest' });
+}
 $('btn-share').onclick = toggleShare;
 
 // ---------------------------------------------------------------- roles & permissions

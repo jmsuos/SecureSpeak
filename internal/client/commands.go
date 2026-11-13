@@ -89,6 +89,11 @@ type uiState struct {
 	Sharing         bool                `json:"sharing"`
 	ServerHasPw     bool                `json:"serverHasPw"`
 	AutoMedia       bool                `json:"autoMedia"`
+	LeaveMessage    string              `json:"leaveMessage"`
+	JoinSound       *SoundRef           `json:"joinSound"`
+	LeaveSound      *SoundRef           `json:"leaveSound"`
+	AppSounds       map[string]SoundRef `json:"appSounds"`
+	PeerSounds      bool                `json:"peerSounds"`
 	KeyProtected    bool                `json:"keyProtected"`
 	MaxClients      int                 `json:"maxClients"`
 }
@@ -103,6 +108,8 @@ func (c *Client) stateLocked() uiState {
 		HotkeySupported: hotkey.Supported(), HotkeyInfo: hotkey.Info(),
 		Whisper: []uiWhisper{}, DownloadDir: c.downloadDirLocked(), Avatar: c.avatarHash,
 		Platform: runtime.GOOS, Version: AppVersion, Sharing: c.sharing, AutoMedia: !c.cfg.NoAutoMedia,
+		LeaveMessage: c.cfg.LeaveMessage, JoinSound: c.cfg.JoinSound, LeaveSound: c.cfg.LeaveSound,
+		AppSounds: c.cfg.AppSounds, PeerSounds: !c.cfg.NoPeerSounds,
 		KeyProtected: platform.ProtectsSecrets,
 		Channels:     []proto.ChannelInfo{}, Clients: []uiClient{},
 		Perms: []string{}, Roles: []proto.RoleInfo{}, PermCatalog: proto.PermCatalog,
@@ -269,6 +276,43 @@ func (c *Client) HandleCommand(cmd string, raw json.RawMessage) (any, error) {
 		var ce proto.ChanEdit
 		json.Unmarshal(raw, &ce)
 		return nil, c.withSession(func(s *session) error { s.send(proto.TChanEdit, ce); return nil })
+
+	case "sound_set":
+		var ss struct {
+			Slot string `json:"slot"`
+			Name string `json:"name"`
+			Data []byte `json:"data"` // base64 in JSON; empty = remove
+		}
+		if err := json.Unmarshal(raw, &ss); err != nil {
+			return nil, errors.New("bad sound")
+		}
+		return nil, c.setSound(ss.Slot, ss.Name, ss.Data)
+
+	case "leave_msg":
+		return nil, c.setLeaveMessage(a.str("text"))
+
+	case "peer_sounds":
+		c.mu.Lock()
+		c.cfg.NoPeerSounds = !a.boolean("on")
+		c.saveLocked()
+		c.mu.Unlock()
+		c.emitState()
+		return nil, nil
+
+	case "yt_signin":
+		return nil, platform.OpenInAppBrowser("https://accounts.google.com/ServiceLogin?service=youtube&continue=https%3A%2F%2Fwww.youtube.com%2F")
+
+	case "watch_send":
+		var w struct {
+			Data json.RawMessage `json:"data"`
+		}
+		if err := json.Unmarshal(raw, &w); err != nil || len(w.Data) == 0 || len(w.Data) > 4096 {
+			return nil, errors.New("bad watch message")
+		}
+		return nil, c.withSession(func(s *session) error {
+			_, _, err := c.sendBodyLocked(s, "wt", 0, chatBody{Watch: w.Data})
+			return err
+		})
 
 	case "chan_icon":
 		var ci struct {
