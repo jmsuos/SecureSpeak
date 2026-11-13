@@ -170,7 +170,8 @@ const canEdit = (ch) => S && (can('channel.edit') || (!ch.perm && ch.owner === S
 const canDelete = (ch) => S && (can('channel.delete') || (!ch.perm && ch.owner === S.myID));
 const roleById = (id) => S && (S.roles || []).find((r) => r.id === id);
 const safeColor = (c) => (/^#[0-9a-f]{6}$/i.test(c || '') ? c : '');
-const staffPerms = ['roles.manage', 'roles.assign', 'tokens.create', 'ban.list', 'server.edit', 'server.password'];
+const staffPerms = ['roles.manage', 'roles.assign', 'tokens.create', 'ban.list', 'server.edit', 'server.password', 'server.logs'];
+const canEditServer = () => can('server.edit') || can('server.password');
 function roleBadges(u, max = 2) {
   const out = [];
   if (u.owner) out.push(el('span', { class: 'badge owner', text: 'OWNER', title: 'Server owner' }));
@@ -200,6 +201,7 @@ function handle({ t, d }) {
   switch (t) {
     case 'state': onState(d); break;
     case 'update': onUpdate(d); break;
+    case 'logs': if (logsView) logsView(d); break;
     case 'watch': W.onMessage(d.from, d.fromNick, d.data); break;
     case 'peer_sound': AE.playFile(d.hash, 'peer'); break;
     case 'closing': onClosing(d); break;
@@ -522,8 +524,7 @@ function renderServerInfo(box) {
     el('div', { class: 'k', style: 'color:var(--faint);font-size:12px', text: 'Server certificate (SHA-256)' }),
     el('div', { class: 'fp', style: 'font-size:11px', text: S.certFP }),
     el('div', { class: 'actions' },
-      can('server.edit') && el('button', { class: 'btn', onclick: openServerEdit }, icon('edit'), 'Edit server'),
-      can('server.password') && el('button', { class: 'btn', onclick: openServerPassword }, icon('lock'), 'Server password'),
+      canEditServer() && el('button', { class: 'btn', onclick: openServerEdit }, icon('edit'), 'Edit server'),
       (can('roles.manage') || can('roles.assign') || can('tokens.create')) && el('button', { class: 'btn', onclick: () => openRoleManager() }, icon('shield'), 'Roles & permissions'),
       can('ban.list') && el('button', { class: 'btn', onclick: openBans }, icon('list'), 'Ban list'),
       el('button', { class: 'btn', onclick: () => openChannelModal(null, 0) }, icon('folderPlus'), 'New channel')));
@@ -812,8 +813,8 @@ async function adminButton(e) {
     (can('roles.manage') || can('roles.assign') || can('tokens.create')) && { label: 'Roles & permissions…', icon: 'shield', fn: () => openRoleManager() },
     can('tokens.create') && { label: 'Privilege keys…', icon: 'key', fn: () => openRoleManager('keys') },
     can('ban.list') && { label: 'Ban list', icon: 'list', fn: openBans },
-    can('server.edit') && { label: 'Edit server name & welcome', icon: 'edit', fn: openServerEdit },
-    can('server.password') && { label: 'Server password…', icon: 'lock', fn: openServerPassword },
+    canEditServer() && { label: 'Edit server…', icon: 'edit', fn: openServerEdit },
+    can('server.logs') && { label: 'Server logs', icon: 'file', fn: openServerLogs },
     'sep',
     { label: 'Use privilege key…', icon: 'key', fn: useToken },
   ]);
@@ -942,9 +943,10 @@ function openChannelIcon(ch) {
 function serverMenu(e) {
   showCtx(e.clientX, e.clientY, [
     { label: 'Create channel', icon: 'folderPlus', fn: () => openChannelModal(null, 0) },
-    can('server.edit') && { label: 'Edit server', icon: 'edit', fn: openServerEdit },
+    canEditServer() && { label: 'Edit server', icon: 'edit', fn: openServerEdit },
     (can('roles.manage') || can('roles.assign') || can('tokens.create')) && { label: 'Roles & permissions…', icon: 'shield', fn: () => openRoleManager() },
     can('ban.list') && { label: 'Ban list', icon: 'list', fn: openBans },
+    can('server.logs') && { label: 'Server logs', icon: 'file', fn: openServerLogs },
     'sep',
     { label: 'Disconnect', icon: 'unplug', fn: () => act('disconnect') },
   ]);
@@ -1173,14 +1175,96 @@ function openChannelModal(ch, parent) {
 
 // ---- server admin
 function openServerEdit() {
+  const edit = can('server.edit'), pwOK = can('server.password');
   const name = el('input', { maxlength: 60, value: S.serverName });
   const welcome = el('textarea', { maxlength: 2000 });
   welcome.value = S.welcomeMsg || '';
+  const pw = el('input', { type: 'password', maxlength: 128, autocomplete: 'new-password', placeholder: S.serverHasPw ? 'Leave empty to keep the current password' : 'Leave empty for no password' });
+  const pw2 = el('input', { type: 'password', maxlength: 128, autocomplete: 'new-password' });
+  let removePw = false;
+  const pwState = el('div');
+  const renderPwState = () => pwState.replaceChildren(el('div', { class: 'callout' + (S.serverHasPw && !removePw ? '' : ' warn') },
+    removePw ? 'The password will be removed when you save: anyone who knows the address can connect.'
+      : S.serverHasPw ? 'This server requires a password to connect.' : 'This server has no password: anyone who knows the address can connect.',
+    S.serverHasPw && !removePw && el('button', { class: 'btn danger', type: 'button', style: 'margin-left:10px', onclick: () => { removePw = true; pw.value = pw2.value = ''; renderPwState(); } }, icon('x'), 'Remove password'),
+    removePw && el('button', { class: 'btn', type: 'button', style: 'margin-left:10px', onclick: () => { removePw = false; renderPwState(); } }, 'Undo')));
+  renderPwState();
   modal({
-    title: 'Server settings', icon: 'server',
-    body: [el('div', { class: 'field' }, el('label', { text: 'Server name' }), name), el('div', { class: 'field' }, el('label', { text: 'Welcome message' }), welcome)],
-    buttons: [{ label: 'Cancel' }, { label: 'Save', primary: true, fn: () => act('server_edit', { name: name.value, welcome: welcome.value }) }],
+    title: 'Edit server', icon: 'server',
+    body: [
+      edit && el('div', { class: 'field' }, el('label', { text: 'Server name' }), name),
+      edit && el('div', { class: 'field' }, el('label', { text: 'Welcome message' }), welcome),
+      pwOK && el('div', { class: 'section-title', text: 'Server password' }),
+      pwOK && pwState,
+      pwOK && el('div', { class: 'field' }, el('label', { text: S.serverHasPw ? 'New password' : 'Password' }), pw),
+      pwOK && el('div', { class: 'field' }, el('label', { text: 'Repeat password' }), pw2),
+      pwOK && el('div', { class: 'hint', text: 'People who are connected stay connected. Share the password privately with anyone who should be able to join.' }),
+    ].filter(Boolean),
+    buttons: [{ label: 'Cancel' }, {
+      label: 'Save', primary: true, fn: async () => {
+        if (pwOK && (pw.value || pw2.value) && pw.value !== pw2.value) { toast('The passwords do not match', 'error'); return false; }
+        if (removePw && !(await confirmModal('Remove server password', 'Anyone who knows the server address will be able to connect. Continue?', 'Remove', true))) return false;
+        if (edit && (name.value !== S.serverName || welcome.value !== (S.welcomeMsg || ''))) {
+          if ((await act('server_edit', { name: name.value, welcome: welcome.value })) === undefined) return false;
+        }
+        if (pwOK && removePw) { if ((await act('server_password', { remove: true })) === undefined) return false; }
+        else if (pwOK && pw.value) { if ((await act('server_password', { password: pw.value })) === undefined) return false; }
+        return true;
+      },
+    }],
   });
+}
+
+// ---- server logs (admin)
+let logsView = null;
+function openServerLogs() {
+  const lines = [];
+  let last = 0, timer = 0, filter = '';
+  const list = el('div', { class: 'logs' }, el('div', { class: 'hint', text: 'Loading…' }));
+  const count = el('span', { class: 'hint', style: 'margin:0' });
+  const search = el('input', { type: 'search', placeholder: 'Filter (e.g. a nickname, IP or "kick")' });
+  const follow = el('input', { type: 'checkbox', checked: true });
+  const fmt = (l) => new Date(l.t * 1000).toLocaleString([], { month: 'short', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit' });
+  const draw = () => {
+    const atBottom = list.scrollHeight - list.scrollTop - list.clientHeight < 40;
+    const f = filter.toLowerCase();
+    const shown = f ? lines.filter((l) => l.text.toLowerCase().includes(f)) : lines;
+    list.replaceChildren(...(shown.length ? shown.slice(-2000).map((l) => el('div', { class: 'log-line' }, el('span', { class: 'log-t', text: fmt(l) }), el('span', { text: l.text })))
+      : [el('div', { class: 'hint', text: lines.length ? 'No lines match the filter.' : 'No log lines yet.' })]));
+    count.textContent = (f ? shown.length + ' of ' : '') + lines.length + ' lines';
+    if (atBottom || !list.dataset.drawn) list.scrollTop = list.scrollHeight;
+    list.dataset.drawn = '1';
+  };
+  logsView = (d) => {
+    const fresh = (d.lines || []).filter((l) => l.seq > last);
+    if (!fresh.length && list.dataset.drawn) return;
+    for (const l of fresh) lines.push(l);
+    if (lines.length > 5000) lines.splice(0, lines.length - 5000);
+    if (fresh.length) last = fresh[fresh.length - 1].seq;
+    draw();
+  };
+  search.oninput = () => { filter = search.value.trim(); draw(); };
+  const poll = () => { if (follow.checked) act('server_logs', { since: last }); };
+  timer = setInterval(poll, 3000);
+  const download = () => {
+    const text = lines.map((l) => new Date(l.t * 1000).toISOString() + ' ' + l.text).join('\n') + '\n';
+    const a = el('a', { href: URL.createObjectURL(new Blob([text], { type: 'text/plain' })), download: 'securespeak-server-' + new Date().toISOString().slice(0, 10) + '.log' });
+    document.body.append(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+  };
+  modal({
+    title: 'Server logs', icon: 'file', wide: true,
+    body: [
+      el('div', { class: 'logs-bar' }, search,
+        el('label', { class: 'check', style: 'margin:0' }, follow, 'Live'),
+        count,
+        el('button', { class: 'btn', type: 'button', onclick: download }, icon('download'), 'Download')),
+      list,
+      el('div', { class: 'hint', text: 'The last 5000 lines, kept across server restarts. On the server they are in /var/lib/securespeak/logs/ (and in journalctl -u securespeak).' }),
+    ],
+    onClose: () => { clearInterval(timer); logsView = null; },
+  });
+  act('server_logs', { since: 0 });
 }
 
 function openBans() {
@@ -1253,7 +1337,7 @@ async function openSettings(initialTab) {
   let lvlRefs = null;
 
   const render = () => {
-    tabsBar.replaceChildren(...[['audio', 'Audio & voice'], ['sounds', 'Sounds'], ['share', 'Screen share'], ['whisper', 'Whisper'], ['general', 'Profile & security'], ['about', 'About SecureSpeak']].map(([k, l]) => {
+    tabsBar.replaceChildren(...[['audio', 'Audio & voice'], ['sounds', 'Sounds'], ['whisper', 'Whisper'], ['general', 'Profile & security'], ['about', 'About SecureSpeak']].map(([k, l]) => {
       const b = el('button', { class: (k === tab ? 'on' : '') + (k === 'about' && updateAvailable() ? ' has-update' : ''), text: l });
       b.onclick = () => { tab = k; if (k === 'about') checkForUpdates(); render(); };
       return b;
@@ -1264,7 +1348,6 @@ async function openSettings(initialTab) {
     else if (tab === 'whisper') renderWhisperTab(view);
     else if (tab === 'about') renderAboutTab(view);
     else if (tab === 'sounds') renderSoundsTab(view);
-    else if (tab === 'share') renderShareTab(view);
     else renderGeneralTab();
   };
 
@@ -1406,9 +1489,10 @@ async function openSettings(initialTab) {
 }
 
 // ---------------------------------------------------------------- screen share quality
-function renderShareTab(view) {
-  const q = Object.assign({ preset: 'smooth', fps: 30, height: 1080, mbps: 8, software: false }, S.share || {});
-  const save = (patch) => act('share_quality', Object.assign({}, q, patch));
+// Quality picker, shown when you click "Share screen". q is edited in place;
+// onChange re-renders.
+function shareQualityPicker(q, onChange) {
+  const set = (patch) => { Object.assign(q, patch); onChange(); };
   const presets = [
     ['sharp', 'Sharp', '15 fps · 1080p · up to 4 Mbit/s', 'Text, code, documents and slides'],
     ['smooth', 'Smooth', '30 fps · 1080p · 6 Mbit/s', 'Everyday use, browsing, videos'],
@@ -1416,34 +1500,50 @@ function renderShareTab(view) {
     ['custom', 'Custom', 'Your own frame rate, resolution and bitrate', 'For fast connections'],
   ];
   const card = ([k, name, spec, use]) => el('label', { class: 'q-card' + (q.preset === k ? ' on' : '') },
-    el('input', { type: 'radio', name: 'share-preset', checked: q.preset === k, onchange: () => save({ preset: k }) }),
+    el('input', { type: 'radio', name: 'share-preset', checked: q.preset === k, onchange: () => set({ preset: k }) }),
     el('div', {}, el('div', { class: 'q-name', text: name }), el('div', { class: 'q-spec', text: spec }), el('div', { class: 'hint', style: 'margin:0', text: use })));
   const slider = (label, min, max, step, val, fmt, key) => {
     const v = el('span', { class: 'val', text: fmt(val) });
     const r = el('input', { type: 'range', min, max, step, value: val });
-    r.oninput = () => { v.textContent = fmt(+r.value); };
-    r.onchange = () => save({ [key]: +r.value });
+    r.oninput = () => { v.textContent = fmt(+r.value); q[key] = +r.value; };
+    r.onchange = () => set({ [key]: +r.value });
     return el('div', { class: 'slider-row' }, el('label', { text: label }), r, v);
   };
-  const res = el('select', { onchange: (e) => save({ height: +e.target.value }) },
+  const res = el('select', { onchange: (e) => set({ height: +e.target.value }) },
     ...[[720, '720p'], [1080, '1080p (Full HD)'], [1440, '1440p (QHD)'], [2160, '2160p (4K)'], [0, 'Screen resolution']]
       .map(([v, l]) => el('option', { value: v, text: l, selected: q.height === v })));
   const mbit = q.preset === 'custom' ? q.mbps : (SHARE_PRESETS[q.preset] || {}).mbps || 4;
-  const gbPerHour = (mbit * 3600 / 8 / 1000).toFixed(1);
-  add(view,
-    el('div', { class: 'section-title', style: 'margin-top:4px', text: 'Quality' }),
+  return el('div', {},
     el('div', { class: 'q-cards' }, ...presets.map(card)),
     q.preset === 'custom' && el('div', { class: 'q-custom' },
       slider('Frame rate', 5, 60, 5, q.fps, (v) => v + ' fps', 'fps'),
       el('div', { class: 'slider-row' }, el('label', { text: 'Max resolution' }), res),
       slider('Bitrate', 1, 25, 1, q.mbps, (v) => v + ' Mbit/s', 'mbps')),
-    el('div', { class: 'hint', text: 'Each viewer receives about ' + mbit + ' Mbit/s (≈ ' + gbPerHour + ' GB per hour), relayed by the server. Viewers with a slow connection skip frames instead of falling behind.' }),
-    el('div', { class: 'section-title', text: 'Encoding' }),
-    el('label', { class: 'check' },
-      el('input', { type: 'checkbox', checked: !q.software, onchange: (e) => save({ software: !e.target.checked }) }),
+    el('div', { class: 'hint', text: 'Each viewer receives about ' + mbit + ' Mbit/s (≈ ' + (mbit * 3600 / 8 / 1000).toFixed(1) + ' GB per hour), relayed by the server. Viewers with a slow connection skip frames instead of falling behind.' }),
+    el('label', { class: 'check', style: 'margin-top:10px' },
+      el('input', { type: 'checkbox', checked: !q.software, onchange: (e) => set({ software: !e.target.checked }) }),
       'Use the graphics card (hardware encoding)'),
-    el('div', { class: 'hint', text: 'Encodes H.264 on the GPU (NVIDIA NVENC, Intel Quick Sync, AMD AMF) so your processor stays free, falling back to VP9 in software when the GPU or a viewer can\'t do H.264. Changes apply the next time you start sharing.' }),
-    SS.sharing && el('div', { class: 'callout', style: 'margin-top:10px', text: 'Sharing now: ' + (SS.info() || 'starting…') }));
+    el('div', { class: 'hint', text: 'Encodes H.264 on the GPU (NVIDIA NVENC, Intel Quick Sync, AMD AMF) so your processor stays free, falling back to VP9 in software when the GPU or a viewer can\'t do H.264.' }));
+}
+
+// The dialog before sharing: pick the quality, then choose what to share.
+function openShareDialog() {
+  const q = Object.assign({ preset: 'smooth', fps: 30, height: 1080, mbps: 8, software: false }, S.share || {});
+  const holder = el('div');
+  const render = () => holder.replaceChildren(shareQualityPicker(q, render));
+  render();
+  modal({
+    title: 'Share your screen', icon: 'monitor', wide: true,
+    body: [holder, el('div', { class: 'hint', style: 'margin-top:10px', text: 'Next you choose a screen, window or browser tab. ' + (S.platform === 'windows' ? 'Switch on “Also share system audio” there to include sound.' : 'Sound can be shared together with a browser tab.') })],
+    buttons: [{ label: 'Cancel' }, {
+      label: 'Choose what to share…', primary: true, fn: () => {
+        // start right away (the browser only allows the picker straight after a click), save in the background
+        startShare(Object.assign({}, q));
+        act('share_quality', q);
+        return true;
+      },
+    }],
+  });
 }
 
 // ---------------------------------------------------------------- custom sounds
@@ -2034,36 +2134,6 @@ document.addEventListener('paste', (e) => {
 })();
 
 // ---------------------------------------------------------------- server password
-function openServerPassword() {
-  const pw = el('input', { type: 'password', maxlength: 128, autocomplete: 'new-password' });
-  const pw2 = el('input', { type: 'password', maxlength: 128, autocomplete: 'new-password' });
-  modal({
-    title: 'Server password', icon: 'lock',
-    body: [
-      el('div', { class: 'callout' + (S.serverHasPw ? '' : ' warn'), text: S.serverHasPw ? 'This server requires a password to connect.' : 'This server has no password: anyone who knows the address can connect.' }),
-      el('div', { class: 'field' }, el('label', { text: S.serverHasPw ? 'New password' : 'Password' }), pw),
-      el('div', { class: 'field' }, el('label', { text: 'Repeat password' }), pw2),
-      el('div', { class: 'hint', text: 'People who are connected stay connected. Share the password privately with anyone who should be able to join.' }),
-    ],
-    buttons: [
-      { label: 'Cancel' },
-      S.serverHasPw && {
-        label: 'Remove password', danger: true, fn: async () => {
-          if (!(await confirmModal('Remove server password', 'Anyone who knows the server address will be able to connect. Continue?', 'Remove', true))) return false;
-          return act('server_password', { remove: true });
-        },
-      },
-      {
-        label: S.serverHasPw ? 'Change password' : 'Set password', primary: true, fn: async () => {
-          if (!pw.value) { toast('Enter a password', 'error'); return false; }
-          if (pw.value !== pw2.value) { toast('The passwords do not match', 'error'); return false; }
-          return (await act('server_password', { password: pw.value })) === undefined ? false : true;
-        },
-      },
-    ].filter(Boolean),
-  });
-}
-
 // ---------------------------------------------------------------- screen share UI
 function renderShareButton() {
   const b = $('btn-share');
@@ -2071,24 +2141,29 @@ function renderShareButton() {
   b.classList.toggle('hidden', !allowed);
   btnContent(b, 'monitor', SS.sharing ? (SS.withAudio ? 'Stop sharing (with sound)' : 'Stop sharing') : 'Share screen');
   b.classList.toggle('sharing', SS.sharing);
-  const q = SS.quality();
   b.title = SS.sharing ? 'Sharing: ' + (SS.info() || 'starting…') + ' — click to stop'
-    : 'Share your screen with your channel (end-to-end encrypted) · ' + q.fps + ' fps' + (q.height ? ', up to ' + q.height + 'p' : '') + ' · change in Settings → Screen share';
+    : 'Share your screen with your channel (end-to-end encrypted)';
 }
 
 async function toggleShare() {
+  if (SS.sharing) {
+    try { await SS.stop(); } catch (e) { /* stopped */ }
+    renderShareButton();
+    return;
+  }
+  openShareDialog();
+}
+
+async function startShare(q) {
   try {
-    if (SS.sharing) await SS.stop();
-    else {
-      await SS.start();
-      if (SS.withAudio) {
-        toast('You are sharing your screen with sound. People in your channel can click LIVE to watch.');
-        if (!SS.ownAudioFiltered) toast('Note: this browser engine cannot keep SecureSpeak\'s own sound out of the shared audio, so viewers may hear voices from the call through your share.', 'warn');
-      } else {
-        toast('You are sharing your screen without sound. ' + (S.platform === 'windows'
-          ? 'To include sound, stop and share again and switch on “Also share system audio” in the sharing dialog (available for screens and windows).'
-          : 'On Linux, sound can only be shared together with a browser tab, not with a screen or window.'), 'warn');
-      }
+    await SS.start(q);
+    if (SS.withAudio) {
+      toast('You are sharing your screen with sound. People in your channel can click LIVE to watch.');
+      if (!SS.ownAudioFiltered) toast('Note: this browser engine cannot keep SecureSpeak\'s own sound out of the shared audio, so viewers may hear voices from the call through your share.', 'warn');
+    } else {
+      toast('You are sharing your screen without sound. ' + (S.platform === 'windows'
+        ? 'To include sound, stop and share again and switch on “Also share system audio” in the sharing dialog (available for screens and windows).'
+        : 'On Linux, sound can only be shared together with a browser tab, not with a screen or window.'), 'warn');
     }
   } catch (e) {
     if (e && e.name !== 'NotAllowedError' && e.name !== 'AbortError') toast('Could not share: ' + e.message, 'error');

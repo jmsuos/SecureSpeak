@@ -240,3 +240,31 @@ func TestIdentityReplayRejected(t *testing.T) {
 		t.Fatalf("replayed identity was accepted: %s %s", m.T, payload)
 	}
 }
+
+func TestServerLogs(t *testing.T) {
+	_, host, port := startServer(t)
+	alice, aliceRec := newTestClient(t, host, port, "Alice")
+	bob, bobRec := newTestClient(t, host, port, "Bob")
+	bob.HandleCommand("server_logs", mustJSON(map[string]any{}))
+	waitFor(t, "guest refused", hasErr(bobRec, "permission", "server logs"))
+
+	alice.HandleCommand("token_use", mustJSON(map[string]any{"token": ownerToken}))
+	waitFor(t, "alice owner", func() bool { return alice.State().Owner })
+	alice.HandleCommand("server_logs", mustJSON(map[string]any{"since": 0}))
+	waitFor(t, "logs arrive", func() bool { return len(aliceRec.all("logs")) > 0 })
+	aliceRec.mu.Lock()
+	defer aliceRec.mu.Unlock()
+	for _, e := range aliceRec.events {
+		if l, ok := e.v.(proto.Logs); ok && e.t == "logs" {
+			joined := ""
+			for _, x := range l.Lines {
+				joined += x.Text + "\n"
+			}
+			if !strings.Contains(joined, "server started") || !strings.Contains(joined, "Bob") {
+				t.Fatalf("unexpected log content:\n%s", joined)
+			}
+			return
+		}
+	}
+	t.Fatal("no proto.Logs event")
+}

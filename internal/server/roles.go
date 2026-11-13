@@ -97,7 +97,7 @@ func (s *Server) loadRoles() {
 			return false
 		}
 		if err := json.Unmarshal(b, v); err != nil {
-			s.Logf("%s: %v", name, err)
+			s.logf("%s: %v", name, err)
 			return false
 		}
 		return true
@@ -135,7 +135,7 @@ func (s *Server) loadRoles() {
 // migrateRolesLocked gives existing roles the permissions added in later
 // versions, mirroring what they could already do. Runs once per schema bump.
 func (s *Server) migrateRolesLocked() {
-	const current = 4
+	const current = 5
 	if s.cfg.RolesSchema >= current {
 		return
 	}
@@ -153,15 +153,18 @@ func (s *Server) migrateRolesLocked() {
 		if has[proto.PermChannelEdit] && s.cfg.RolesSchema < 3 { // 3.3: channel icons
 			has[proto.PermChannelIcon] = true
 		}
-		if has[proto.PermScreenShare] { // 3.4: watch together, like screen sharing
+		if has[proto.PermScreenShare] && s.cfg.RolesSchema < 4 { // 3.4: watch together, like screen sharing
 			has[proto.PermWatch] = true
+		}
+		if has[proto.PermServerEdit] { // 3.7: server logs, for roles that may edit the server
+			has[proto.PermServerLogs] = true
 		}
 		r.Perms = proto.SortedPerms(has)
 	}
 	s.cfg.RolesSchema = current
 	s.saveRolesLocked()
 	if err := SaveJSON(s.cfgPath, s.cfg); err != nil {
-		s.Logf("save config: %v", err)
+		s.logf("save config: %v", err)
 	}
 }
 
@@ -173,7 +176,7 @@ func (s *Server) saveRolesLocked() {
 		return s.roles[i].ID < s.roles[j].ID
 	})
 	if err := SaveJSON(filepath.Join(s.dataDir, "roles.json"), s.roles); err != nil {
-		s.Logf("save roles: %v", err)
+		s.logf("save roles: %v", err)
 	}
 }
 
@@ -184,7 +187,7 @@ func (s *Server) saveMembersLocked() {
 	}
 	sort.Slice(list, func(i, j int) bool { return list[i].Key < list[j].Key })
 	if err := SaveJSON(filepath.Join(s.dataDir, "members.json"), list); err != nil {
-		s.Logf("save members: %v", err)
+		s.logf("save members: %v", err)
 	}
 }
 
@@ -193,7 +196,7 @@ func (s *Server) saveKeysLocked() {
 		s.keys = []*PrivKey{}
 	}
 	if err := SaveJSON(filepath.Join(s.dataDir, "privilege_keys.json"), s.keys); err != nil {
-		s.Logf("save privilege keys: %v", err)
+		s.logf("save privilege keys: %v", err)
 	}
 }
 
@@ -279,7 +282,7 @@ func (s *Server) newOwnerTokenLocked() string {
 		"In the client: connect, then Admin -> Use privilege key. The identity that\n" +
 		"redeems it becomes the permanent server owner. This file is deleted on use.\n"
 	if err := os.WriteFile(s.ownerTokenPath(), []byte(msg), 0600); err != nil {
-		s.Logf("write owner token: %v", err)
+		s.logf("write owner token: %v", err)
 	}
 	return t
 }
@@ -395,7 +398,7 @@ func (s *Server) handleRoles(c *Client, m proto.Message) (handled, keep bool) {
 		default:
 			t := s.createKeyLocked(r.ID, false, cleanName(tc.Note, 80), c.Nick)
 			c.send(proto.TToken, proto.Token{Token: t, Role: r.ID, Note: cleanName(tc.Note, 80)})
-			s.Logf("%q created a privilege key for role %q", c.Nick, r.Name)
+			s.logf("%q created a privilege key for role %q", c.Nick, r.Name)
 		}
 	case proto.TTokenList:
 		if !perms[proto.PermTokensCreate] {
@@ -463,7 +466,7 @@ func (s *Server) handleRoles(c *Client, m proto.Message) (handled, keep bool) {
 					s.broadcastLocked(proto.TClientUpdate, s.clientInfo(o), 0)
 				}
 			}
-			s.Logf("%q deleted role %q", c.Nick, r.Name)
+			s.logf("%q deleted role %q", c.Nick, r.Name)
 		}
 	case proto.TClientRoles:
 		cr, _ := decode[proto.ClientRoles](m)
@@ -493,7 +496,7 @@ func (s *Server) useToken(c *Client, token string) bool {
 	if key == nil {
 		s.mu.Unlock()
 		c.failedAuth++
-		s.Logf("client %d %q used an invalid privilege key from %s", c.ID, c.Nick, c.ip)
+		s.logf("client %d %q used an invalid privilege key from %s", c.ID, c.Nick, c.ip)
 		time.Sleep(time.Second)
 		c.sendErr("token", "invalid or already used privilege key")
 		return c.failedAuth < 5
@@ -529,7 +532,7 @@ func (s *Server) useToken(c *Client, token string) bool {
 	if msg != "" {
 		c.send(proto.TNotice, proto.Notice{Msg: msg})
 	}
-	s.Logf("client %d %q redeemed a privilege key (owner=%v)", c.ID, c.Nick, key.Owner)
+	s.logf("client %d %q redeemed a privilege key (owner=%v)", c.ID, c.Nick, key.Owner)
 	return true
 }
 
@@ -576,7 +579,7 @@ func (s *Server) saveRole(c *Client, perms map[string]bool, power int, ri proto.
 		r := &Role{ID: s.nextRole, Name: name, Color: ri.Color, Power: ri.Power, Perms: dedupe(newPerms)}
 		s.nextRole++
 		s.roles = append(s.roles, r)
-		s.Logf("%q created role %q", c.Nick, name)
+		s.logf("%q created role %q", c.Nick, name)
 	} else {
 		r := s.roleLocked(ri.ID)
 		if r == nil {
@@ -593,7 +596,7 @@ func (s *Server) saveRole(c *Client, perms map[string]bool, power int, ri proto.
 		} else {
 			r.Power = ri.Power
 		}
-		s.Logf("%q edited role %q", c.Nick, name)
+		s.logf("%q edited role %q", c.Nick, name)
 	}
 	s.saveRolesLocked()
 	s.broadcastLocked(proto.TRoles, proto.Roles{Roles: s.roleInfosLocked()}, 0)
@@ -668,7 +671,7 @@ func (s *Server) setRoles(c *Client, perms map[string]bool, power int, cr proto.
 	if target != nil && target != c {
 		target.send(proto.TNotice, proto.Notice{Msg: fmt.Sprintf("%s changed your roles.", c.Nick)})
 	}
-	s.Logf("%q set roles of %q to %v", c.Nick, mem.Nick, mem.Roles)
+	s.logf("%q set roles of %q to %v", c.Nick, mem.Nick, mem.Roles)
 	if cr.ID == 0 {
 		c.send(proto.TMembers, s.memberListLocked())
 	}
