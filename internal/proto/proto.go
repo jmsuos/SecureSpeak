@@ -51,6 +51,7 @@ const (
 	CodecVP9 byte = 11
 	// Screen share sound: 48 kHz stereo Opus, carried with the video frames.
 	CodecOpusShare byte = 12
+	CodecH264      byte = 13 // H.264 (Annex B), usually encoded on the GPU
 
 	// Voice routing modes (first byte of a client voice payload).
 	VoiceChannel byte = 0 // [0][signed inner]

@@ -95,6 +95,7 @@ type uiState struct {
 	AppSounds       map[string]SoundRef `json:"appSounds"`
 	PeerSounds      bool                `json:"peerSounds"`
 	Reconnecting    *uiReconnect        `json:"reconnecting"`
+	Share           ShareQuality        `json:"share"`
 	AutoReconnect   bool                `json:"autoReconnect"`
 	KeyProtected    bool                `json:"keyProtected"`
 	MaxClients      int                 `json:"maxClients"`
@@ -113,6 +114,7 @@ func (c *Client) stateLocked() uiState {
 		LeaveMessage: c.cfg.LeaveMessage, JoinSound: c.cfg.JoinSound, LeaveSound: c.cfg.LeaveSound,
 		AppSounds: c.cfg.AppSounds, PeerSounds: !c.cfg.NoPeerSounds,
 		Reconnecting: c.reconnectStateLocked(), AutoReconnect: !c.cfg.NoAutoReconnect,
+		Share:        c.cfg.Share.clamp(),
 		KeyProtected: platform.ProtectsSecrets,
 		Channels:     []proto.ChannelInfo{}, Clients: []uiClient{},
 		Perms: []string{}, Roles: []proto.RoleInfo{}, PermCatalog: proto.PermCatalog,
@@ -427,10 +429,24 @@ func (c *Client) HandleCommand(cmd string, raw json.RawMessage) (any, error) {
 		return nil, c.SetSharing(a.boolean("on"))
 
 	case "watch":
+		var codecs []int
+		json.Unmarshal(a["codecs"], &codecs)
 		return nil, c.withSession(func(s *session) error {
-			s.send(proto.TWatch, proto.Watch{ID: a.id("id"), On: a.boolean("on")})
+			s.send(proto.TWatch, proto.Watch{ID: a.id("id"), On: a.boolean("on"), Codecs: codecs})
 			return nil
 		})
+
+	case "share_quality":
+		var q ShareQuality
+		if err := json.Unmarshal(raw, &q); err != nil {
+			return nil, errors.New("bad share settings")
+		}
+		c.mu.Lock()
+		c.cfg.Share = q.clamp()
+		c.saveLocked()
+		c.mu.Unlock()
+		c.emitState()
+		return nil, nil
 
 	case "request_keyframe":
 		return nil, c.withSession(func(s *session) error {

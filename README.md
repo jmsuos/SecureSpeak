@@ -1,6 +1,6 @@
 <p align="center"><img src="assets/securespeak-logo.png" alt="SecureSpeak" width="320"></p>
 
-# SecureSpeak 3.5
+# SecureSpeak 3.6
 
 A TeamSpeak-style voice and text server with end-to-end encryption. There are no
 accounts: you pick a nickname and connect. The server relays encrypted packets
@@ -11,6 +11,17 @@ and can never hear, read or fake anything.
 | Client | Windows 10/11 | `SecureSpeak-Setup-<version>.exe` installer (or the portable exe) |
 | Client | Ubuntu, Linux Mint, Debian (amd64/arm64) | `linux-client/securespeak_3.0.0_amd64.deb`, or the portable binary + `install-client.sh` |
 | Server | Linux (amd64/arm64) | `linux-server/securespeak-server` + `install-server.sh` |
+
+## What's new in 3.6
+
+- **Screen share quality** (*Settings → Screen share*):
+  - **Sharp:** 15 fps, for text and code.
+  - **Smooth:** 30 fps, the new default.
+  - **Gaming:** 60 fps at 10 Mbit/s.
+  - **Custom:** 5–60 fps, 720p up to 4K or your screen resolution, and 1–25 Mbit/s.
+- **GPU encoding:** screen shares are encoded as H.264 on the graphics card (NVIDIA NVENC, Intel Quick Sync, AMD AMF), so the processor stays free. Without a suitable GPU, or with the option off, SecureSpeak uses VP9 in software.
+- **Works with older viewers:** viewers tell the sharer which formats they can decode. If someone on an older version watches, the share automatically switches to VP9 so everyone can see it.
+- **Bandwidth:** each viewer receives the chosen bitrate through the server. For example, 10 Mbit/s is about 4.5 GB per hour per viewer.
 
 ## What's new in 3.5
 

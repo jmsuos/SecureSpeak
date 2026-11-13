@@ -76,6 +76,8 @@ type Config struct {
 	NoPeerSounds bool                `json:"noPeerSounds,omitempty"` // don't play other people's join/leave sounds
 
 	NoAutoReconnect bool `json:"noAutoReconnect,omitempty"` // don't reconnect after a lost connection
+
+	Share ShareQuality `json:"share"` // screen share quality
 }
 
 func defaultConfig() *Config {
@@ -209,3 +211,35 @@ func (s *Store) OutboxDir() string { return filepath.Join(s.dir, "outbox") }
 
 // CacheDir holds automatically loaded media previews (cleared on start).
 func (s *Store) CacheDir() string { return filepath.Join(s.dir, "cache") }
+
+// ShareQuality is the screen share quality the user picked.
+type ShareQuality struct {
+	Preset   string  `json:"preset"`   // sharp, smooth, gaming or custom
+	FPS      int     `json:"fps"`      // custom: 5-60
+	Height   int     `json:"height"`   // custom: 720, 1080, 1440, 2160 or 0 (screen size)
+	Mbps     float64 `json:"mbps"`     // custom: 1-25
+	Software bool    `json:"software"` // don't use the GPU (hardware) encoder
+}
+
+func (q ShareQuality) clamp() ShareQuality {
+	if q.Preset == "" { // never set: defaults
+		return ShareQuality{Preset: "smooth", FPS: 30, Height: 1080, Mbps: 8}
+	}
+	switch q.Preset {
+	case "sharp", "smooth", "gaming", "custom":
+	default:
+		q.Preset = "smooth"
+	}
+	if q.FPS < 5 || q.FPS > 60 {
+		q.FPS = 30
+	}
+	switch q.Height {
+	case 0, 720, 1080, 1440, 2160:
+	default:
+		q.Height = 1080
+	}
+	if q.Mbps < 1 || q.Mbps > 25 {
+		q.Mbps = 8
+	}
+	return q
+}
