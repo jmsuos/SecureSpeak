@@ -55,6 +55,38 @@ const P = {
   info: '<circle cx="12" cy="12" r="10"/><path d="M12 16v-4M12 8h.01"/>',
   globe: '<circle cx="12" cy="12" r="10"/><path d="M2 12h20M12 2a15 15 0 0 1 0 20 15 15 0 0 1 0-20z"/>',
 };
+// Built-in channel icons: name -> [label, color, svg markup]
+const CH_ICONS = {
+  home: ['Home', '#7b96ff', '<path d="M3 10.5L12 3l9 7.5V21a1 1 0 0 1-1 1h-5v-7H9v7H4a1 1 0 0 1-1-1z"/>'],
+  moon: ['AFK', '#f5b84a', P.moon],
+  game: ['Gaming', '#b79bff', '<rect x="2" y="7" width="20" height="11" rx="5"/><path d="M7 11v3M5.5 12.5h3M15.5 12h.01M18 14h.01"/>'],
+  music: ['Music', '#ff7eb6', '<path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/>'],
+  coffee: ['Coffee', '#d29b6c', '<path d="M17 8h1a4 4 0 0 1 0 8h-1M3 8h14v9a4 4 0 0 1-4 4H7a4 4 0 0 1-4-4zM6 2v3M10 2v3M14 2v3"/>'],
+  chat: ['Chat', '#5fd3f3', P.msg],
+  mic: ['Talk', '#39d98a', P.mic],
+  head: ['Headset', '#39d98a', P.head],
+  radio: ['Broadcast', '#f2555a', P.radio],
+  monitor: ['Streaming', '#5fd3f3', P.monitor],
+  film: ['Movies', '#ff9f5a', '<rect x="2" y="3" width="20" height="18" rx="2"/><path d="M7 3v18M17 3v18M2 8h5M2 16h5M17 8h5M17 16h5M2 12h20"/>'],
+  code: ['Code', '#7be0a0', '<path d="M16 18l6-6-6-6M8 6l-6 6 6 6"/>'],
+  briefcase: ['Work', '#c0a27a', '<rect x="2" y="7" width="20" height="14" rx="2"/><path d="M16 7V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v2M2 13h20"/>'],
+  book: ['Study', '#9fb4ff', '<path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20V3H6.5A2.5 2.5 0 0 0 4 5.5zM4 19.5A2.5 2.5 0 0 0 6.5 22H20v-5"/>'],
+  users: ['Group', '#7b96ff', '<circle cx="9" cy="8" r="4"/><path d="M2 21a7 7 0 0 1 14 0M16 3.5a4 4 0 0 1 0 8M22 21a7 7 0 0 0-5-6.7"/>'],
+  support: ['Support', '#ff7e7e', '<circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="4"/><path d="M4.9 4.9l4.3 4.3M14.8 14.8l4.3 4.3M14.8 9.2l4.3-4.3M4.9 19.1l4.3-4.3"/>'],
+  trophy: ['Trophy', '#f5c84a', '<path d="M8 21h8M12 17v4M7 4h10v5a5 5 0 0 1-10 0zM7 6H4a3 3 0 0 0 3 4M17 6h3a3 3 0 0 1-3 4"/>'],
+  crown: ['VIP', '#f5c84a', '<path d="M3 18h18M4 18l-1-11 5 4 4-7 4 7 5-4-1 11"/>'],
+  star: ['Star', '#f5c84a', P.star],
+  heart: ['Heart', '#ff6b8b', '<path d="M20.8 4.6a5.5 5.5 0 0 0-7.8 0L12 5.7l-1-1.1a5.5 5.5 0 0 0-7.8 7.8L12 21l8.8-8.6a5.5 5.5 0 0 0 0-7.8z"/>'],
+  fire: ['Hot', '#ff8a3d', '<path d="M12 22c4 0 7-3 7-7 0-4-3-6-4-10-2 2-3 4-3 6-1-1-2-2-2-4-2 2-5 5-5 8 0 4 3 7 7 7z"/>'],
+  zap: ['Energy', '#f5d84a', '<path d="M13 2L3 14h9l-1 8 10-12h-9z"/>'],
+  flag: ['Event', '#ff7e7e', '<path d="M4 22V4M4 4h13l-2 4 2 4H4"/>'],
+  globe: ['World', '#5fd3f3', P.globe],
+  shield: ['Staff', '#7b96ff', P.shield],
+  lock: ['Private', '#f5b84a', P.lock],
+  bell: ['Announcements', '#f5c84a', P.bell],
+};
+for (const [k, v] of Object.entries(CH_ICONS)) P['ch_' + k] = v[2];
+
 function icon(name) {
   const s = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
   s.setAttribute('viewBox', '0 0 24 24');
@@ -351,12 +383,29 @@ function renderTree() {
 
 function indent(depth) { return 'padding-left:' + (8 + depth * 18) + 'px'; }
 
+// chanIcon renders a channel's icon: built-in, custom image, or the default.
+function chanIcon(ch, big) {
+  const v = ch.icon || '';
+  if (v.startsWith('img:') && /^[0-9a-f]{64}$/.test(v.slice(4))) {
+    return el('img', { class: 'chicon' + (big ? ' big' : ''), src: '/chicon?h=' + v.slice(4) + '&token=' + encodeURIComponent(TOKEN), alt: '', draggable: 'false' });
+  }
+  if (v.startsWith('std:') && CH_ICONS[v.slice(4)]) {
+    const s = icon('ch_' + v.slice(4));
+    s.style.color = CH_ICONS[v.slice(4)][1];
+    return s;
+  }
+  return icon(ch.pw ? 'lock' : 'hash');
+}
+const hasIcon = (ch) => /^(std|img):/.test(ch.icon || '');
+const canIcon = (ch) => ch.perm && can('channel.icon');
+
 function channelNode(ch, depth) {
   const count = S.clients.filter((x) => x.channel === ch.id).length;
   const wrap = el('div', { class: 'chan' + (ch.id === S.myChannel ? ' mine' : '') + (ch.pw ? ' locked' : '') });
   const row = el('div', { class: 'row' + (selected?.type === 'channel' && selected.id === ch.id ? ' selected' : ''), style: indent(depth) },
-    el('span', { class: 'ico' }, icon(ch.pw ? 'lock' : 'hash')),
+    el('span', { class: 'ico' + (hasIcon(ch) ? ' custom' : '') }, chanIcon(ch)),
     el('span', { class: 'name', text: ch.name }),
+    ch.pw && hasIcon(ch) && el('span', { class: 'pw-lock', title: 'Password protected' }, icon('lock')),
     ch.topic && el('span', { class: 'sub', text: '— ' + ch.topic }),
     el('span', { class: 'tail' },
       !ch.perm && el('span', { class: 'badge', text: 'TEMP' }),
@@ -463,7 +512,7 @@ function renderServerInfo(box) {
 function renderChannelInfo(box, ch) {
   const users = S.clients.filter((x) => x.channel === ch.id).length;
   add(box, 
-    el('div', { class: 'info-title' }, icon(ch.pw ? 'lock' : 'hash'), ch.name),
+    el('div', { class: 'info-title' + (hasIcon(ch) ? ' custom' : '') }, chanIcon(ch, true), ch.name),
     ch.topic && el('div', { class: 'info-sub', style: 'color:var(--text)', text: ch.topic }),
     ch.desc && el('div', { class: 'info-sub', text: ch.desc }),
     kv([['Type', ch.perm ? 'Permanent' : 'Temporary (deleted when empty)'], ['Users', users + (ch.max ? ' / ' + ch.max : '')], ['Password', ch.pw ? 'Yes' : 'No'], ch.def && ['Default', 'New users land here']]),
@@ -471,6 +520,7 @@ function renderChannelInfo(box, ch) {
       ch.id !== S.myChannel && el('button', { class: 'btn primary', onclick: () => joinChannel(ch) }, icon('enter'), 'Join'),
       el('button', { class: 'btn', onclick: () => openChannelModal(null, ch.id) }, icon('folderPlus'), 'Sub-channel'),
       canEdit(ch) && el('button', { class: 'btn', onclick: () => openChannelModal(ch) }, icon('edit'), 'Edit'),
+      canIcon(ch) && el('button', { class: 'btn', onclick: () => openChannelIcon(ch) }, icon('image'), 'Icon'),
       canDelete(ch) && !ch.def && el('button', { class: 'btn danger', onclick: () => deleteChannel(ch) }, icon('trash'), 'Delete')));
 }
 
@@ -765,11 +815,95 @@ function channelMenu(e, ch) {
     ch.id !== S.myChannel && { label: 'Join channel', icon: 'enter', fn: () => joinChannel(ch) },
     { label: 'Create sub-channel', icon: 'folderPlus', fn: () => openChannelModal(null, ch.id) },
     canEdit(ch) && { label: 'Edit channel', icon: 'edit', fn: () => openChannelModal(ch) },
+    canIcon(ch) && { label: 'Set channel icon…', icon: 'image', fn: () => openChannelIcon(ch) },
     canDelete(ch) && !ch.def && { label: 'Delete channel', icon: 'trash', danger: true, fn: () => deleteChannel(ch) },
     S.whisperAllowed && { label: 'Add to whisper list…', icon: 'whisper', fn: () => addToWhisperList({ channel: ch }) },
     'sep',
     { label: 'Create channel', icon: 'plus', fn: () => openChannelModal(null, 0) },
   ]);
+}
+
+// ---- channel icons
+// Turns a .png or .ico file into a PNG of at most 64×64 (transparency kept).
+function iconFileToPNG(file) {
+  return new Promise((resolve, reject) => {
+    if (file.size > 1024 * 1024) return reject(new Error('That file is too large for an icon (max 1 MB).'));
+    const url = URL.createObjectURL(file);
+    const img = new Image();
+    img.onload = () => {
+      URL.revokeObjectURL(url);
+      const w = img.naturalWidth, h = img.naturalHeight;
+      if (!w || !h) return reject(new Error('Could not read this image.'));
+      const scale = Math.min(1, 64 / Math.max(w, h));
+      const cw = Math.max(1, Math.round(w * scale)), chh = Math.max(1, Math.round(h * scale));
+      const c = document.createElement('canvas');
+      c.width = cw; c.height = chh;
+      const g = c.getContext('2d');
+      g.imageSmoothingEnabled = true;
+      g.imageSmoothingQuality = 'high';
+      g.clearRect(0, 0, cw, chh);
+      g.drawImage(img, 0, 0, cw, chh);
+      c.toBlob((b) => {
+        if (!b) return reject(new Error('Could not convert the image.'));
+        const r = new FileReader();
+        r.onload = () => resolve({ b64: String(r.result).split(',')[1], url: r.result });
+        r.onerror = () => reject(new Error('Could not convert the image.'));
+        r.readAsDataURL(b);
+      }, 'image/png');
+    };
+    img.onerror = () => { URL.revokeObjectURL(url); reject(new Error('Could not read this file. Use a .png or .ico image.')); };
+    img.src = url;
+  });
+}
+
+function openChannelIcon(ch) {
+  let choice = ch.icon || ''; // 'std:x', 'img:hash', '' or 'upload'
+  let upload = null; // {b64, url}
+  const preview = el('div', { class: 'icon-preview' });
+  const grid = el('div', { class: 'icon-grid' });
+  const file = el('input', { type: 'file', accept: '.png,.ico,image/png,image/x-icon,image/vnd.microsoft.icon', style: 'display:none' });
+  const renderPick = () => {
+    const shown = choice === 'upload' ? el('img', { class: 'chicon big', src: upload.url, alt: '' })
+      : chanIcon(Object.assign({}, ch, { icon: choice }), true);
+    preview.replaceChildren(el('span', { class: 'ip-ico' + (choice ? ' custom' : '') }, shown), el('span', { class: 'ip-name', text: ch.name }),
+      el('span', { class: 'hint', text: choice === 'upload' ? 'Your image' : choice.startsWith('std:') ? CH_ICONS[choice.slice(4)]?.[0] || '' : choice.startsWith('img:') ? 'Custom image' : 'Default icon' }));
+    grid.querySelectorAll('button').forEach((b) => b.classList.toggle('on', b.dataset.v === choice));
+  };
+  for (const [k, [label, color]] of Object.entries(CH_ICONS)) {
+    const s = icon('ch_' + k); s.style.color = color;
+    const b = el('button', { type: 'button', class: 'icon-pick', title: label, 'data-v': 'std:' + k }, s);
+    b.onclick = () => { choice = 'std:' + k; renderPick(); };
+    grid.append(b);
+  }
+  file.onchange = async () => {
+    const f = file.files[0];
+    file.value = '';
+    if (!f) return;
+    try { upload = await iconFileToPNG(f); choice = 'upload'; renderPick(); } catch (e) { toast(e.message, 'error'); }
+  };
+  modal({
+    title: 'Channel icon', icon: 'image',
+    body: [
+      preview,
+      el('div', { class: 'section-title', text: 'Standard icons' }),
+      grid,
+      el('div', { class: 'section-title', text: 'Your own icon' }),
+      el('div', { style: 'display:flex;gap:8px;align-items:center;flex-wrap:wrap' },
+        el('button', { class: 'btn', type: 'button', onclick: () => file.click() }, icon('download'), 'Upload .png or .ico…'),
+        el('button', { class: 'btn', type: 'button', onclick: () => { choice = ''; renderPick(); } }, icon('x'), 'No icon'),
+        file),
+      el('div', { class: 'hint', style: 'margin-top:6px', text: 'Transparency is kept. Images are scaled down to at most 64×64 pixels. Channel icons are visible to everyone on the server and stored by the server, like channel names.' }),
+    ],
+    buttons: [{ label: 'Cancel' }, {
+      label: 'Save', primary: true, fn: async () => {
+        if (choice === (ch.icon || '')) return true;
+        if (choice === 'upload') await act('chan_icon', { id: ch.id, png: upload.b64 });
+        else await act('chan_icon', { id: ch.id, icon: choice });
+        return true;
+      },
+    }],
+  });
+  renderPick();
 }
 
 function serverMenu(e) {

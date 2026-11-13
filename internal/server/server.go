@@ -37,6 +37,7 @@ type Channel struct {
 	Default      bool   `json:"default"`
 	Order        int    `json:"order"`
 	Owner        uint32 `json:"-"`
+	Icon         string `json:"icon,omitempty"`
 }
 
 type Ban struct {
@@ -177,6 +178,8 @@ func (s *Server) loadChannels() {
 			s.nextChan++
 			s.channels[id] = &Channel{ID: id, Name: name, Permanent: true, Default: i == 0, Order: i}
 		}
+		s.channels[1].Icon = "std:home"
+		s.channels[4].Icon = "std:moon"
 		s.channels[4].Topic = "Away from keyboard"
 		s.saveChannelsLocked()
 	}
@@ -336,6 +339,9 @@ func (s *Server) Serve() error {
 }
 
 // Addrs returns the actual listening addresses (useful when ports are 0).
+// DataDir returns the server's data folder.
+func (s *Server) DataDir() string { return s.dataDir }
+
 func (s *Server) Addrs() (tcp, udp string) {
 	return s.tcp.Addr().String(), s.udp.LocalAddr().String()
 }
@@ -623,7 +629,7 @@ func (s *Server) channelInfo(c *Channel) proto.ChannelInfo {
 	return proto.ChannelInfo{
 		ID: c.ID, Parent: c.Parent, Name: c.Name, Topic: c.Topic, Description: c.Description,
 		HasPassword: c.PasswordHash != "", MaxUsers: c.MaxUsers, Permanent: c.Permanent,
-		Default: c.Default, Order: c.Order, Owner: c.Owner,
+		Default: c.Default, Order: c.Order, Owner: c.Owner, Icon: c.Icon,
 	}
 }
 
@@ -835,6 +841,14 @@ func (s *Server) handle(c *Client, m proto.Message) bool {
 	case proto.TChanCreate:
 		if cc, ok := decode[proto.ChanCreate](m); ok {
 			s.chanCreate(c, cc)
+		}
+	case proto.TChanIcon:
+		if ci, ok := decode[proto.ChanIcon](m); ok {
+			s.chanIcon(c, ci)
+		}
+	case proto.TIconGet:
+		if ig, ok := decode[proto.IconData](m); ok {
+			s.iconGet(c, ig.Hash)
 		}
 	case proto.TChanEdit:
 		if ce, ok := decode[proto.ChanEdit](m); ok {
@@ -1051,6 +1065,9 @@ func (s *Server) chanEdit(c *Client, ce proto.ChanEdit) {
 		ch.Permanent = ce.Permanent
 		if ch.Permanent {
 			ch.Owner = 0
+		} else if ch.Icon != "" { // icons are for permanent channels only
+			ch.Icon = ""
+			defer s.gcIconsLocked()
 		}
 		ch.Order = ce.Order
 		if ce.Default && ch.Permanent && !ch.Default {
@@ -1140,6 +1157,7 @@ func (s *Server) chanDelete(c *Client, id uint32) {
 		}
 	}
 	s.saveChannelsLocked()
+	s.gcIconsLocked()
 }
 
 // relayFile forwards opaque, end-to-end encrypted file traffic to one client.
