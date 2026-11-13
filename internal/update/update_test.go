@@ -4,9 +4,14 @@ import (
 	"archive/tar"
 	"bytes"
 	"compress/gzip"
+	"crypto/ed25519"
+	"crypto/rand"
 	"crypto/sha256"
+	"crypto/x509"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
+	"encoding/pem"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -14,6 +19,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"sort"
 	"strings"
 	"sync"
 	"testing"
@@ -51,6 +57,8 @@ type fakeGH struct {
 	noSums   bool
 	digest   string // override digest for all assets
 	tag      string
+	signKey  ed25519.PrivateKey // sign SHA256SUMS with this key
+	badSig   bool               // serve a signature over different content
 	requests int
 	mu       sync.Mutex
 }
@@ -75,9 +83,12 @@ func newFakeGH(t *testing.T, tag string, files map[string][]byte) *fakeGH {
 			if !f.noSums {
 				names = append(names, "SHA256SUMS")
 			}
+			if f.signKey != nil {
+				names = append(names, "SHA256SUMS.sig")
+			}
 			for _, n := range names {
 				a := Asset{Name: n, URL: f.srv.URL + "/dl/" + n, Size: int64(len(f.files[n]))}
-				if n != "SHA256SUMS" {
+				if n != "SHA256SUMS" && n != "SHA256SUMS.sig" {
 					h := sha256.Sum256(f.files[n])
 					a.Digest = "sha256:" + hex.EncodeToString(h[:])
 					if f.digest != "" {
@@ -88,14 +99,13 @@ func newFakeGH(t *testing.T, tag string, files map[string][]byte) *fakeGH {
 			}
 			json.NewEncoder(w).Encode(Release{Tag: f.tag, Name: "SecureSpeak", Notes: "## What's new\n* things", URL: "https://example/rel", Published: "2026-11-13T10:00:00Z", Assets: assets})
 		case r.URL.Path == "/dl/SHA256SUMS":
-			for n, b := range f.files {
-				h := sha256.Sum256(b)
-				sum := hex.EncodeToString(h[:])
-				if o, ok := f.sums[n]; ok {
-					sum = o
-				}
-				fmt.Fprintf(w, "%s  %s\n", sum, n)
+			w.Write(f.sumsFile())
+		case r.URL.Path == "/dl/SHA256SUMS.sig":
+			msg := f.sumsFile()
+			if f.badSig {
+				msg = append(msg, "tampered"...)
 			}
+			fmt.Fprintln(w, base64.StdEncoding.EncodeToString(ed25519.Sign(f.signKey, msg)))
 		case strings.HasPrefix(r.URL.Path, "/dl/"):
 			b, ok := f.files[strings.TrimPrefix(r.URL.Path, "/dl/")]
 			if !ok {
@@ -109,6 +119,24 @@ func newFakeGH(t *testing.T, tag string, files map[string][]byte) *fakeGH {
 	}))
 	t.Cleanup(f.srv.Close)
 	return f
+}
+
+func (f *fakeGH) sumsFile() []byte {
+	var names []string
+	for n := range f.files {
+		names = append(names, n)
+	}
+	sort.Strings(names)
+	var b strings.Builder
+	for _, n := range names {
+		h := sha256.Sum256(f.files[n])
+		sum := hex.EncodeToString(h[:])
+		if o, ok := f.sums[n]; ok {
+			sum = o
+		}
+		fmt.Fprintf(&b, "%s  %s\n", sum, n)
+	}
+	return []byte(b.String())
 }
 
 func tarball(t *testing.T, files map[string][]byte) []byte {
@@ -370,5 +398,138 @@ func TestSwapRunningExe(t *testing.T) {
 		if _, err := os.Stat(exe + ".old"); err != nil {
 			t.Fatal("running exe was not moved aside")
 		}
+	}
+}
+
+func pemPublic(t *testing.T, pub ed25519.PublicKey) []byte {
+	der, err := x509.MarshalPKIXPublicKey(pub)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return pem.EncodeToMemory(&pem.Block{Type: "PUBLIC KEY", Bytes: der})
+}
+
+func TestSignedReleases(t *testing.T) {
+	pub, priv, _ := ed25519.GenerateKey(rand.Reader)
+	otherPub, otherPriv, _ := ed25519.GenerateKey(rand.Reader)
+	keys, err := ParseKeys(append([]byte("# comment\n"), append(pemPublic(t, otherPub), pemPublic(t, pub)...)...))
+	if err != nil || len(keys) != 2 {
+		t.Fatalf("ParseKeys: %v %d", err, len(keys))
+	}
+	if k, err := ParseKeys(signingKeysPEM); err != nil {
+		t.Fatalf("built-in signing-keys.pem: %v", err)
+	} else if len(k) != len(TrustedKeys) {
+		t.Fatal("TrustedKeys mismatch")
+	}
+	if _, err := ParseKeys([]byte("-----BEGIN PRIVATE KEY-----\nAAAA\n-----END PRIVATE KEY-----\n")); err == nil {
+		t.Fatal("a private key in signing-keys.pem must be rejected")
+	}
+	name := "SecureSpeak-3.2.0-portable.exe"
+	run := func(t *testing.T, gh *fakeGH, keys []ed25519.PublicKey) error {
+		t.Helper()
+		u := testUpdater(t, gh, WinPortable, "SecureSpeak.exe")
+		u.Keys = keys
+		r, err := u.Latest(t.Context())
+		if err != nil {
+			t.Fatal(err)
+		}
+		_, err = u.Prepare(t.Context(), r, nil)
+		b, _ := os.ReadFile(u.Exe)
+		if (err == nil) != (string(b) == "NEW") {
+			t.Fatalf("err=%v but exe=%q", err, b)
+		}
+		return err
+	}
+	t.Run("signed by a trusted key", func(t *testing.T) {
+		gh := newFakeGH(t, "v3.2.0", map[string][]byte{name: []byte("NEW"), "x.deb": []byte("y")})
+		gh.signKey = priv
+		if err := run(t, gh, keys); err != nil {
+			t.Fatal(err)
+		}
+	})
+	t.Run("second key also works (rotation)", func(t *testing.T) {
+		gh := newFakeGH(t, "v3.2.0", map[string][]byte{name: []byte("NEW")})
+		gh.signKey = otherPriv
+		if err := run(t, gh, keys); err != nil {
+			t.Fatal(err)
+		}
+	})
+	t.Run("unsigned release refused", func(t *testing.T) {
+		gh := newFakeGH(t, "v3.2.0", map[string][]byte{name: []byte("NEW")})
+		if err := run(t, gh, keys); err == nil || !strings.Contains(err.Error(), "not signed") {
+			t.Fatalf("err = %v", err)
+		}
+	})
+	t.Run("signed by an unknown key refused", func(t *testing.T) {
+		gh := newFakeGH(t, "v3.2.0", map[string][]byte{name: []byte("NEW")})
+		_, stranger, _ := ed25519.GenerateKey(rand.Reader)
+		gh.signKey = stranger
+		if err := run(t, gh, keys); err == nil || !strings.Contains(err.Error(), "not valid") {
+			t.Fatalf("err = %v", err)
+		}
+	})
+	t.Run("SHA256SUMS changed after signing refused", func(t *testing.T) {
+		gh := newFakeGH(t, "v3.2.0", map[string][]byte{name: []byte("NEW")})
+		gh.signKey = priv
+		gh.badSig = true
+		if err := run(t, gh, keys); err == nil || !strings.Contains(err.Error(), "not valid") {
+			t.Fatalf("err = %v", err)
+		}
+	})
+	t.Run("attacker replaces file and checksums but cannot sign", func(t *testing.T) {
+		gh := newFakeGH(t, "v3.2.0", map[string][]byte{name: []byte("EVIL")})
+		gh.signKey = stranger(t)
+		if err := run(t, gh, keys); err == nil {
+			t.Fatal("malicious release accepted")
+		}
+	})
+	t.Run("without built-in keys signatures are optional", func(t *testing.T) {
+		gh := newFakeGH(t, "v3.2.0", map[string][]byte{name: []byte("NEW")})
+		if err := run(t, gh, nil); err != nil {
+			t.Fatal(err)
+		}
+	})
+}
+
+func stranger(t *testing.T) ed25519.PrivateKey {
+	_, k, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return k
+}
+
+// TestOpenSSLSignatureFormat checks that a signature made the way CI makes it
+// (openssl pkeyutl -sign -rawin, base64) verifies with VerifySums.
+func TestOpenSSLSignatureFormat(t *testing.T) {
+	openssl, err := exec.LookPath("openssl")
+	if err != nil {
+		t.Skip("openssl not installed")
+	}
+	dir := t.TempDir()
+	key := filepath.Join(dir, "k.pem")
+	if out, err := exec.Command(openssl, "genpkey", "-algorithm", "ed25519", "-out", key).CombinedOutput(); err != nil {
+		t.Skipf("openssl without ed25519: %v %s", err, out)
+	}
+	pubPEM, err := exec.Command(openssl, "pkey", "-in", key, "-pubout").Output()
+	if err != nil {
+		t.Fatal(err)
+	}
+	sums := filepath.Join(dir, "SHA256SUMS")
+	os.WriteFile(sums, []byte("abc  file.exe\n"), 0644)
+	sig, err := exec.Command(openssl, "pkeyutl", "-sign", "-inkey", key, "-rawin", "-in", sums).Output()
+	if err != nil {
+		t.Skipf("openssl pkeyutl -rawin unsupported: %v", err)
+	}
+	keys, err := ParseKeys(pubPEM)
+	if err != nil || len(keys) != 1 {
+		t.Fatal(err)
+	}
+	b, _ := os.ReadFile(sums)
+	if err := VerifySums(b, []byte(base64.StdEncoding.EncodeToString(sig)+"\n"), keys); err != nil {
+		t.Fatal(err)
+	}
+	if err := VerifySums(append(b, 'x'), []byte(base64.StdEncoding.EncodeToString(sig)), keys); err == nil {
+		t.Fatal("modified SHA256SUMS accepted")
 	}
 }
