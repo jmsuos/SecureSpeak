@@ -249,6 +249,7 @@ function onState(d) {
   }
   if (!S.connected) lastChannel = 0;
   AE.customSounds = S.appSounds || {};
+  if (S.theme && S.theme !== document.documentElement.dataset.theme) applyTheme(S.theme);
   if (!S.connected) { if (W.session) W.end(); }
   else W.check((id) => id === S.myID ? true : S.clients.some((c) => c.id === id && c.channel === S.myChannel));
   if (selected && selected.type === 'client' && !userById(selected.id)) selected = null;
@@ -1337,7 +1338,7 @@ async function openSettings(initialTab) {
   let lvlRefs = null;
 
   const render = () => {
-    tabsBar.replaceChildren(...[['audio', 'Audio & voice'], ['sounds', 'Sounds'], ['whisper', 'Whisper'], ['general', 'Profile & security'], ['about', 'About SecureSpeak']].map(([k, l]) => {
+    tabsBar.replaceChildren(...[['audio', 'Audio & voice'], ['sounds', 'Sounds'], ['appearance', 'Appearance'], ['whisper', 'Whisper'], ['general', 'Profile & security'], ['about', 'About SecureSpeak']].map(([k, l]) => {
       const b = el('button', { class: (k === tab ? 'on' : '') + (k === 'about' && updateAvailable() ? ' has-update' : ''), text: l });
       b.onclick = () => { tab = k; if (k === 'about') checkForUpdates(); render(); };
       return b;
@@ -1348,6 +1349,7 @@ async function openSettings(initialTab) {
     else if (tab === 'whisper') renderWhisperTab(view);
     else if (tab === 'about') renderAboutTab(view);
     else if (tab === 'sounds') renderSoundsTab(view);
+    else if (tab === 'appearance') renderAppearanceTab(view);
     else renderGeneralTab();
   };
 
@@ -1544,6 +1546,35 @@ function openShareDialog() {
       },
     }],
   });
+}
+
+// ---------------------------------------------------------------- appearance
+// A small mock-up of the app in a theme's colors.
+function themePreview(t) {
+  const st = t.scheme === 'light' ? LIGHT_STATUS : DARK_STATUS;
+  const bar = (w, c) => el('div', { style: `height:5px;width:${w}%;border-radius:3px;background:${c}` });
+  return el('div', { class: 'tp', style: `background:${t.bg};border-color:${t.line}` },
+    el('div', { class: 'tp-top', style: `background:${t.panel};border-color:${t.line}` },
+      el('span', { class: 'tp-dot', style: `background:${t.accent}` }), bar(30, t.dim), el('span', { class: 'tp-btn', style: `background:${t.accent}` })),
+    el('div', { class: 'tp-body' },
+      el('div', { class: 'tp-side', style: `background:${t.panel};border-color:${t.line}` },
+        bar(70, t.text), el('div', { class: 'tp-row', style: `background:rgba(${hexRGB(t.accent)}, .18)` }, el('span', { class: 'tp-dot', style: `background:${st.talk}` }), bar(50, t.text)), bar(55, t.dim), bar(45, t.dim)),
+      el('div', { class: 'tp-chat' },
+        el('div', { class: 'tp-msg', style: `background:${t.panel2};border-color:${t.line}` }, bar(60, t.text), bar(85, t.dim)),
+        el('div', { class: 'tp-msg', style: `background:${t.panel2};border-color:${t.line}` }, bar(40, t.accent2), bar(70, t.dim)),
+        el('div', { class: 'tp-input', style: `background:${t.panel2};border-color:${t.line}` }, el('span', { class: 'tp-btn', style: `background:${t.accent}` })))));
+}
+
+function renderAppearanceTab(view) {
+  const cur = document.documentElement.dataset.theme || DEFAULT_THEME;
+  const pick = (id) => { applyTheme(id); act('theme', { name: id }); settingsView.refresh(); };
+  add(view,
+    el('div', { class: 'section-title', style: 'margin-top:4px', text: 'Theme' }),
+    el('div', { class: 'theme-grid' }, ...Object.entries(THEMES).map(([id, t]) => el('button', {
+      type: 'button', class: 'theme-card' + (id === cur ? ' on' : ''), title: t.desc, onclick: () => pick(id),
+    }, themePreview(t), el('div', { class: 'theme-name' }, el('span', { text: t.name }), id === cur && icon('check')),
+      el('div', { class: 'hint', style: 'margin:0', text: t.desc + (t.scheme === 'light' ? ' · light' : '') })))),
+    el('div', { class: 'hint', text: 'The theme only changes how SecureSpeak looks on this computer.' }));
 }
 
 // ---------------------------------------------------------------- custom sounds

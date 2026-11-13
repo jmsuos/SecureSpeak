@@ -77,7 +77,8 @@ type Config struct {
 
 	NoAutoReconnect bool `json:"noAutoReconnect,omitempty"` // don't reconnect after a lost connection
 
-	Share ShareQuality `json:"share"` // screen share quality
+	Share ShareQuality `json:"share"`           // screen share quality
+	Theme string       `json:"theme,omitempty"` // color theme (UI name)
 }
 
 func defaultConfig() *Config {

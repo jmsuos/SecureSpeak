@@ -96,6 +96,7 @@ type uiState struct {
 	PeerSounds      bool                `json:"peerSounds"`
 	Reconnecting    *uiReconnect        `json:"reconnecting"`
 	Share           ShareQuality        `json:"share"`
+	Theme           string              `json:"theme"`
 	AutoReconnect   bool                `json:"autoReconnect"`
 	KeyProtected    bool                `json:"keyProtected"`
 	MaxClients      int                 `json:"maxClients"`
@@ -115,6 +116,7 @@ func (c *Client) stateLocked() uiState {
 		AppSounds: c.cfg.AppSounds, PeerSounds: !c.cfg.NoPeerSounds,
 		Reconnecting: c.reconnectStateLocked(), AutoReconnect: !c.cfg.NoAutoReconnect,
 		Share:        c.cfg.Share.clamp(),
+		Theme:        c.cfg.Theme,
 		KeyProtected: platform.ProtectsSecrets,
 		Channels:     []proto.ChannelInfo{}, Clients: []uiClient{},
 		Perms: []string{}, Roles: []proto.RoleInfo{}, PermCatalog: proto.PermCatalog,
@@ -435,6 +437,18 @@ func (c *Client) HandleCommand(cmd string, raw json.RawMessage) (any, error) {
 			s.send(proto.TWatch, proto.Watch{ID: a.id("id"), On: a.boolean("on"), Codecs: codecs})
 			return nil
 		})
+
+	case "theme":
+		name := a.str("name")
+		if len(name) == 0 || len(name) > 24 || strings.Trim(name, "abcdefghijklmnopqrstuvwxyz") != "" {
+			return nil, errors.New("unknown theme")
+		}
+		c.mu.Lock()
+		c.cfg.Theme = name
+		c.saveLocked()
+		c.mu.Unlock()
+		c.emitState()
+		return nil, nil
 
 	case "share_quality":
 		var q ShareQuality
