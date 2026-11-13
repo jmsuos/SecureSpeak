@@ -64,6 +64,14 @@ type Peer struct {
 	keyChanged  bool
 	avatar      []byte
 	avatarHash  string
+
+	joinedAt   time.Time // zero for people already there when we connected
+	joinPlayed bool
+	sndJoin    string // announced join/leave sound hashes
+	sndLeave   string
+	sndAsked   map[string]bool // sounds we requested from them
+	sndSent    map[string]bool // sounds we sent them
+	leaveMsg   string
 }
 
 func (p *Peer) key(id byte) *e2e.SenderKey {
@@ -478,6 +486,7 @@ func (c *Client) connect(host string, port int, nick, serverPw, trustFP string) 
 	if c.avatar != nil {
 		c.sendAvatarLocked(s, nil)
 	}
+	c.announceSoundsLocked(s, nil)
 	c.mu.Unlock()
 
 	go s.writer()
@@ -498,6 +507,7 @@ func (c *Client) Disconnect() {
 	s := c.sess
 	c.mu.Unlock()
 	if s != nil {
+		c.sayGoodbye(s)
 		c.dropSession(s, "Disconnected")
 	}
 }
@@ -658,11 +668,13 @@ func (c *Client) handleMsg(s *session, m proto.Message) {
 			break
 		}
 		p := c.addPeerLocked(s, ci)
+		p.joinedAt = time.Now()
 		if ci.Channel == s.me.Channel {
 			c.sendKeyLocked(s, p, s.senderKey)
 			sound = "join"
 		}
 		c.sendAvatarLocked(s, []uint32{ci.ID})
+		c.announceSoundsLocked(s, []uint32{ci.ID})
 		c.system(fmt.Sprintf("%s connected", ci.Nick))
 	case proto.TClientUpdate:
 		ci, ok := unmarshal[proto.ClientInfo](m)
@@ -694,7 +706,14 @@ func (c *Client) handleMsg(s *session, m proto.Message) {
 				c.scheduleRotateLocked(s)
 				sound = "leave"
 			}
-			c.system(fmt.Sprintf("%s disconnected", p.Info.Nick))
+			if p.leaveMsg != "" {
+				c.system(fmt.Sprintf("%s disconnected (%s)", p.Info.Nick, p.leaveMsg))
+			} else {
+				c.system(fmt.Sprintf("%s disconnected", p.Info.Nick))
+			}
+			if p.sndLeave != "" && c.haveSound(p.sndLeave) {
+				c.emitPeerSoundLocked(p, p.sndLeave)
+			}
 			c.peerGoneFilesLocked(s, cl.ID)
 			delete(s.peers, cl.ID)
 		}
@@ -844,6 +863,11 @@ type chatBody struct {
 	Text   string      `json:"text,omitempty"`
 	File   *fileOffer  `json:"file,omitempty"`
 	Avatar *avatarBody `json:"avatar,omitempty"`
+
+	Sounds   *soundAnnounce  `json:"sounds,omitempty"`   // kind sndann
+	SoundReq *soundData      `json:"soundReq,omitempty"` // kind sndreq
+	Sound    *soundData      `json:"sound,omitempty"`    // kind sound
+	Watch    json.RawMessage `json:"watch,omitempty"`    // kind wt: watch-together sync (UI-defined)
 }
 
 func (c *Client) receiveChatLocked(s *session, ch proto.Chat) (sound string, stateChanged bool) {
@@ -871,6 +895,16 @@ func (c *Client) receiveChatLocked(s *session, ch proto.Chat) (sound string, sta
 			p.avatar, p.avatarHash = b.Avatar.Data, imageHash(b.Avatar.Data)
 		}
 		return "", true
+	}
+	switch ch.Kind {
+	case "sndann", "sndreq", "sound", "bye":
+		c.receiveSoundMsgLocked(s, p, ch.Kind, b)
+		return "", false
+	case "wt":
+		if len(b.Watch) > 0 && len(b.Watch) <= 4096 && p.Info.Channel == s.me.Channel {
+			c.em.Emit("watch", map[string]any{"from": ch.From, "fromNick": p.Info.Nick, "data": b.Watch})
+		}
+		return "", false
 	}
 	if p.localMute && ch.Kind != "server" {
 		return "", false
@@ -912,7 +946,7 @@ func (c *Client) withSession(f func(s *session) error) error {
 func (c *Client) sendBodyLocked(s *session, kind string, target uint32, body chatBody) (uint32, map[uint32]bool, error) {
 	recips := map[uint32][]byte{}
 	switch kind {
-	case "channel":
+	case "channel", "wt":
 		target = s.me.Channel
 		for id, p := range s.peers {
 			if p.Valid && p.Info.Channel == target {
@@ -970,7 +1004,7 @@ func (c *Client) SendChat(kind string, target uint32, text string) error {
 	if r := []rune(text); len(r) > proto.MaxChatLen {
 		return fmt.Errorf("message too long (max %d characters)", proto.MaxChatLen)
 	}
-	if kind == "avatar" {
+	if kind != "channel" && kind != "private" && kind != "server" && kind != "poke" {
 		return errors.New("unknown chat kind")
 	}
 	return c.withSession(func(s *session) error {

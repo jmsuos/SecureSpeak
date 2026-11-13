@@ -15,6 +15,7 @@ const (
 	PermVoiceSpeak   = "voice.speak"
 	PermVoiceWhisper = "voice.whisper"
 	PermScreenShare  = "screen.share"
+	PermWatch        = "watch.together"
 
 	PermChatChannel = "chat.channel"
 	PermChatServer  = "chat.server"
@@ -54,6 +55,7 @@ var PermCatalog = []PermInfo{
 	{PermVoiceSpeak, "Voice & chat", "Speak"},
 	{PermVoiceWhisper, "Voice & chat", "Whisper"},
 	{PermScreenShare, "Voice & chat", "Share screen"},
+	{PermWatch, "Voice & chat", "Watch YouTube together"},
 	{PermChatChannel, "Voice & chat", "Channel chat"},
 	{PermChatServer, "Voice & chat", "Server-wide chat"},
 	{PermChatPrivate, "Voice & chat", "Private messages"},

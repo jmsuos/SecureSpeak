@@ -113,6 +113,7 @@ func OpenWindow(url, profileDir string) (<-chan struct{}, error) {
 		return nil, err
 	}
 	setWindow(cmd)
+	setAppBrowser(b.exe, profileDir, b.firefox)
 	done := make(chan struct{})
 	go func() {
 		cmd.Wait()

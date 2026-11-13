@@ -155,6 +155,8 @@ func main() {
 	bridge.Upload = core.OfferFile
 	bridge.Avatar = core.Avatar
 	bridge.ChannelIcon = core.ChannelIcon
+	bridge.Sound = core.SoundFile
+	bridge.SoundCT = client.SoundMime
 	bridge.AvatarCT = client.ImageMime
 	uiURL, err := bridge.Listen()
 	if err != nil {

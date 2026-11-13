@@ -55,6 +55,8 @@ type Bridge struct {
 	Avatar      AvatarSource
 	AvatarCT    func([]byte) string
 	ChannelIcon func(hash string) []byte // custom channel icons (PNG)
+	Sound       func(hash string) []byte // custom sounds (WAV/MP3)
+	SoundCT     func([]byte) string
 	audioMu     sync.Mutex
 	audio       map[*wsConn]chan []byte
 }
@@ -124,7 +126,7 @@ func (b *Bridge) Listen() (string, error) {
 	static := http.FileServer(http.FS(sub))
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Cache-Control", "no-store")
-		w.Header().Set("Content-Security-Policy", "default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self' ws://"+b.host+"; media-src 'self' blob:")
+		w.Header().Set("Content-Security-Policy", "default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; frame-src https://www.youtube.com; connect-src 'self' ws://"+b.host+"; media-src 'self' blob:")
 		w.Header().Set("X-Frame-Options", "DENY")
 		static.ServeHTTP(w, r)
 	})
@@ -142,6 +144,7 @@ func (b *Bridge) Listen() (string, error) {
 	mux.HandleFunc("/avatar", b.avatar)
 	mux.HandleFunc("/media", b.media)
 	mux.HandleFunc("/chicon", b.chanIcon)
+	mux.HandleFunc("/sound", b.sound)
 	srv := &http.Server{Handler: b.guard(mux), ReadHeaderTimeout: 10 * time.Second}
 	go srv.Serve(ln)
 	return "http://" + b.host + "/?token=" + b.Token, nil
@@ -228,7 +231,7 @@ func (b *Bridge) api(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "forbidden", http.StatusForbidden)
 		return
 	}
-	body, err := io.ReadAll(io.LimitReader(r.Body, 1<<20))
+	body, err := io.ReadAll(io.LimitReader(r.Body, 2<<20)) // sound uploads are up to 512 KB (base64)
 	if err != nil {
 		return
 	}
@@ -354,6 +357,24 @@ func (b *Bridge) chanIcon(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("X-Content-Type-Options", "nosniff")
 	w.Header().Set("Content-Security-Policy", "default-src 'none'; sandbox")
 	w.Write(img)
+}
+
+// sound serves a stored custom sound: GET /sound?h=<sha256>.
+func (b *Bridge) sound(w http.ResponseWriter, r *http.Request) {
+	if !b.authorized(r) || b.Sound == nil {
+		http.Error(w, "forbidden", http.StatusForbidden)
+		return
+	}
+	data := b.Sound(r.URL.Query().Get("h"))
+	if data == nil {
+		http.NotFound(w, r)
+		return
+	}
+	w.Header().Set("Content-Type", b.SoundCT(data))
+	w.Header().Set("Cache-Control", "private, max-age=31536000, immutable")
+	w.Header().Set("X-Content-Type-Options", "nosniff")
+	w.Header().Set("Content-Security-Policy", "default-src 'none'; sandbox")
+	w.Write(data)
 }
 
 // previewTypes are the only content types served for previews. Anything

@@ -1,6 +1,6 @@
 <p align="center"><img src="assets/securespeak-logo.png" alt="SecureSpeak" width="320"></p>
 
-# SecureSpeak 3.3
+# SecureSpeak 3.4
 
 A TeamSpeak-style voice and text server with end-to-end encryption. There are no
 accounts: you pick a nickname and connect. The server relays encrypted packets
@@ -11,6 +11,19 @@ and can never hear, read or fake anything.
 | Client | Windows 10/11 | `SecureSpeak-Setup-<version>.exe` installer (or the portable exe) |
 | Client | Ubuntu, Linux Mint, Debian (amd64/arm64) | `linux-client/securespeak_3.0.0_amd64.deb`, or the portable binary + `install-client.sh` |
 | Server | Linux (amd64/arm64) | `linux-server/securespeak-server` + `install-server.sh` |
+
+## What's new in 3.4
+
+- **Watch YouTube together:** click **Watch together** and paste a YouTube link.
+  - Everyone in your channel gets an invite and watches in sync. The person who started the video controls play, pause and seeking, and everyone has their own volume.
+  - The video plays in YouTube's official player, so YouTube's ads apply. Click **YouTube sign-in** to sign in to YouTube in the SecureSpeak window: with YouTube Premium the player shows no ads.
+  - Who can start a video is set by the new permission *Watch YouTube together* (on for everyone by default).
+  - The sync messages are end-to-end encrypted. The video itself streams from YouTube, which sees who watches what, just like on youtube.com.
+- **Your own entrance and exit sounds:** in *Settings → Sounds*, upload a `.wav` or `.mp3` (at most 512 KB and 10 seconds). Others hear it when you connect to or leave the server.
+  - The sounds are sent end-to-end encrypted, only to people who don't have them yet, and kept by everyone after that.
+  - Anyone can switch other people's sounds off.
+- **Leave message**, like TeamSpeak: "Sanne disconnected (Goodnight!)". It's sent end-to-end encrypted when you disconnect or quit.
+- **Replace the app's own sounds** (connect, message, poke, someone joins and more) with your own `.wav` or `.mp3`. This only changes the sounds on your computer.
 
 ## What's new in 3.3
 

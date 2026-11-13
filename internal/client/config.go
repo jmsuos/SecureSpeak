@@ -68,6 +68,12 @@ type Config struct {
 	DownloadDir  string                `json:"downloadDir"`
 	NoAutoMedia  bool                  `json:"noAutoMedia"`  // do not auto-load image/video previews
 	NoAutoUpdate bool                  `json:"noAutoUpdate"` // do not check GitHub for new versions automatically
+
+	LeaveMessage string              `json:"leaveMessage,omitempty"` // shown to others when we disconnect
+	JoinSound    *SoundRef           `json:"joinSound,omitempty"`    // others hear this when we connect
+	LeaveSound   *SoundRef           `json:"leaveSound,omitempty"`   // ... and this when we leave
+	AppSounds    map[string]SoundRef `json:"appSounds,omitempty"`    // replaced notification sounds
+	NoPeerSounds bool                `json:"noPeerSounds,omitempty"` // don't play other people's join/leave sounds
 }
 
 func defaultConfig() *Config {

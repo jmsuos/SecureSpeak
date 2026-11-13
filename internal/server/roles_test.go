@@ -122,3 +122,33 @@ func TestSanitizeIcon(t *testing.T) {
 		}
 	}
 }
+
+// 3.4: roles that can share screens also get watch-together.
+func TestRoleMigrationWatch(t *testing.T) {
+	dir := t.TempDir()
+	cfg := DefaultConfig()
+	cfg.RolesSchema = 3
+	SaveJSON(filepath.Join(dir, "config.json"), cfg)
+	SaveJSON(filepath.Join(dir, "roles.json"), []*Role{
+		{ID: 1, Name: "Guest", Default: true, Perms: []string{proto.PermVoiceSpeak, proto.PermScreenShare}},
+		{ID: 5, Name: "Listener", Power: 10, Perms: []string{proto.PermChatChannel, proto.PermChannelEdit}},
+	})
+	s, err := New(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	has := func(id uint32, p string) bool {
+		for _, x := range s.roleLocked(id).Perms {
+			if x == p {
+				return true
+			}
+		}
+		return false
+	}
+	if !has(1, proto.PermWatch) || has(5, proto.PermWatch) {
+		t.Fatal("watch.together migration wrong")
+	}
+	if has(5, proto.PermChannelIcon) {
+		t.Fatal("3.3 migration re-ran on a schema-3 server")
+	}
+}

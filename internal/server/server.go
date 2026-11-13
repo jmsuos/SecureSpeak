@@ -1176,31 +1176,35 @@ func (s *Server) relayFile(c *Client, to uint32, t string, v any) {
 }
 
 func (s *Server) chat(c *Client, m proto.Chat) {
-	if len(m.CT) > 64*1024 || len(m.Nonce) != 12 || len(m.Wraps) == 0 {
+	maxCT := 64 * 1024
+	if m.Kind == "sound" {
+		maxCT = 600 * 1024 // a custom join/leave sound, end-to-end encrypted
+	}
+	if len(m.CT) > maxCT || len(m.Nonce) != 12 || len(m.Wraps) == 0 {
 		c.sendErr("chat", "invalid message")
 		return
 	}
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	need := map[string]string{"channel": proto.PermChatChannel, "server": proto.PermChatServer,
-		"private": proto.PermChatPrivate, "poke": proto.PermPoke}[m.Kind]
+		"private": proto.PermChatPrivate, "poke": proto.PermPoke, "wt": proto.PermWatch}[m.Kind]
 	if need != "" && !s.hasLocked(c, need) {
 		c.sendErr("permission", "you are not allowed to send this kind of message")
 		return
 	}
 	switch m.Kind {
-	case "channel":
+	case "channel", "wt": // wt: watch-together sync for the channel
 		if m.Target != c.Channel {
 			return
 		}
-	case "private", "poke":
+	case "private", "poke", "sndreq", "sound": // sndreq/sound: custom sound exchange with one user
 		if len(m.Wraps) != 1 {
 			return
 		}
 		if _, ok := m.Wraps[strconv.FormatUint(uint64(m.Target), 10)]; !ok {
 			return
 		}
-	case "server", "avatar": // avatar: profile picture, sent to any set of users
+	case "server", "avatar", "sndann", "bye": // profile picture, sound announcement, leave message
 		m.Target = 0
 	default:
 		return
@@ -1217,7 +1221,7 @@ func (s *Server) chat(c *Client, m proto.Chat) {
 		if to == nil || to == c {
 			continue
 		}
-		if m.Kind == "channel" && to.Channel != c.Channel {
+		if (m.Kind == "channel" || m.Kind == "wt") && to.Channel != c.Channel {
 			continue
 		}
 		cp := m

@@ -370,8 +370,43 @@ const AE = {
     this.updateMic();
   },
 
-  // short synthesized notification sounds
+  // Custom sounds (WAV/MP3 stored by the core, served at /sound?h=…).
+  customSounds: {}, // app sound name -> {hash, name}
+  soundBufs: new Map(), // hash -> Promise<AudioBuffer>
+  playing: new Set(),
+
+  loadSound(hash) {
+    if (!this.soundBufs.has(hash)) {
+      const p = fetch('/sound?h=' + encodeURIComponent(hash) + '&token=' + encodeURIComponent(TOKEN))
+        .then((r) => { if (!r.ok) throw new Error('missing'); return r.arrayBuffer(); })
+        .then((b) => this.ctx.decodeAudioData(b));
+      p.catch(() => this.soundBufs.delete(hash));
+      this.soundBufs.set(hash, p);
+    }
+    return this.soundBufs.get(hash);
+  },
+
+  // Plays a stored sound, at most 10 seconds, at the notification volume.
+  // kind 'peer' = someone else's join/leave sound (at most 3 at once).
+  async playFile(hash, kind) {
+    if (!this.ctx || !this.settings || !this.settings.sounds || !/^[0-9a-f]{64}$/.test(hash)) return;
+    if (kind === 'peer' && this.playing.size >= 3) return;
+    let buf;
+    try { buf = await this.loadSound(hash); } catch (e) { return; }
+    const src = this.ctx.createBufferSource(), g = this.ctx.createGain();
+    src.buffer = buf;
+    g.gain.value = 0.9 * this.settings.soundVolume;
+    src.connect(g).connect(this.ctx.destination);
+    this.playing.add(src);
+    src.onended = () => this.playing.delete(src);
+    src.start();
+    src.stop(this.ctx.currentTime + Math.min(buf.duration, 10));
+  },
+
+  // short synthesized notification sounds (or the user's replacement)
   sound(name) {
+    const custom = this.customSounds && this.customSounds[name];
+    if (custom && custom.hash) { this.playFile(custom.hash); return; }
     const seqs = {
       join: [660, 880], leave: [880, 660], move: [740, 740], msg: [1046], poke: [988, 0, 988, 0, 988],
       connect: [523, 659, 784], disconnect: [784, 659, 523], error: [330, 0, 330], mute: [600], unmute: [900],
