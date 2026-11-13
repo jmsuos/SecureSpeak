@@ -25,7 +25,7 @@ jobs:
       version: ${{ steps.v.outputs.version }}
       numeric: ${{ steps.v.outputs.numeric }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - id: v
         run: |
           base=$(tr -d ' \n' < VERSION)
@@ -44,8 +44,8 @@ jobs:
   test:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/checkout@v6
+      - uses: actions/setup-go@v6
         with:
           go-version-file: go.mod
           cache: false # no third-party modules, nothing to cache
@@ -62,8 +62,8 @@ jobs:
     needs: [version, test]
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/checkout@v6
+      - uses: actions/setup-go@v6
         with:
           go-version-file: go.mod
           cache: false # no third-party modules, nothing to cache
@@ -71,7 +71,7 @@ jobs:
         env:
           VERSION: ${{ needs.version.outputs.version }}
         run: ./build.sh linux
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v6
         with:
           name: linux
           path: |
@@ -95,8 +95,8 @@ jobs:
       run:
         shell: pwsh
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/checkout@v6
+      - uses: actions/setup-go@v6
         with:
           go-version-file: go.mod
           cache: false # no third-party modules, nothing to cache
@@ -212,7 +212,7 @@ jobs:
           if (Get-Process -Id $app.Id -ErrorAction SilentlyContinue) { throw "app still running after uninstall" }
           Write-Host "::notice title=Installer smoke test::install, launch, single-instance, update-restart and uninstall all passed"
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v6
         with:
           name: windows
           path: |
@@ -220,13 +220,13 @@ jobs:
             dist/windows/SecureSpeak.exe
           if-no-files-found: error
 
+  # Runs on every build as a dry run (collect + sign + verify); only tags publish.
   release:
-    if: startsWith(github.ref, 'refs/tags/v')
     needs: [version, linux, windows]
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/download-artifact@v4
+      - uses: actions/checkout@v6
+      - uses: actions/download-artifact@v7
         with:
           path: artifacts
       - name: Collect release files
@@ -241,7 +241,34 @@ jobs:
           cp LICENSE release/LICENSE.txt
           (cd release && sha256sum * > SHA256SUMS)
           ls -l release
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: Sign SHA256SUMS (release signing key)
+        env:
+          UPDATE_SIGNING_KEY: ${{ secrets.UPDATE_SIGNING_KEY }}
+        run: |
+          if [ -z "$UPDATE_SIGNING_KEY" ]; then
+            if go run ./tools/verifysig -keys && [[ "$GITHUB_REF" == refs/tags/v* ]]; then
+              echo "::error title=Release not signed::The app has signing keys built in, so it will refuse unsigned updates. Add the UPDATE_SIGNING_KEY secret (Settings > Secrets and variables > Actions)."
+              exit 1
+            fi
+            echo "::warning title=Release not signed::No UPDATE_SIGNING_KEY secret; publishing without SHA256SUMS.sig."
+            exit 0
+          fi
+          umask 077
+          key="$RUNNER_TEMP/signing.pem"
+          printf '%s\n' "$UPDATE_SIGNING_KEY" > "$key"
+          openssl pkeyutl -sign -inkey "$key" -rawin -in release/SHA256SUMS -out "$RUNNER_TEMP/sig"
+          rm -f "$key"
+          base64 -w0 "$RUNNER_TEMP/sig" > release/SHA256SUMS.sig
+          echo >> release/SHA256SUMS.sig
+          # verify with the public keys built into the app, using the app's own code
+          go run ./tools/verifysig release/SHA256SUMS release/SHA256SUMS.sig
+          echo "::notice title=Release signed::SHA256SUMS.sig verifies with the key built into SecureSpeak"
       - name: Publish GitHub Release
+        if: startsWith(github.ref, 'refs/tags/v')
         env:
           GH_TOKEN: ${{ github.token }}
         run: |

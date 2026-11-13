@@ -1366,7 +1366,7 @@ function renderAboutTab(view) {
     el('label', { class: 'check', style: 'margin-top:14px' },
       el('input', { type: 'checkbox', checked: !!(U && U.auto), onchange: (e) => act('update_auto', { on: e.target.checked }) }),
       'Check for updates automatically'),
-    el('div', { class: 'hint', text: 'SecureSpeak asks GitHub for the latest release when it starts and every 6 hours. Nothing is sent except the request itself (GitHub sees your IP address). Updates are only installed when you click Install, and every download is checked against the release\'s SHA-256 checksums first.' }),
+    el('div', { class: 'hint', text: 'SecureSpeak asks GitHub for the latest release when it starts and every 6 hours. Nothing is sent except the request itself (GitHub sees your IP address). Updates are only installed when you click Install, and every download is checked against the release\'s SHA-256 checksums first' + (U && U.signed ? ', which must carry the SecureSpeak developers\' signature.' : '.') }),
     el('div', { class: 'hint', style: 'margin-top:14px', text: 'Copyright © 2026 jmsuos and SecureSpeak contributors. Free software under the GNU GPL v3.0.' + (u.checked ? ' Last checked ' + new Date(u.checked).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) + '.' : '') }));
 }
 

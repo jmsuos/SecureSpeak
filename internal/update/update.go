@@ -9,6 +9,8 @@
 //
 // Every download is checked against the release's SHA256SUMS file (and the
 // SHA-256 digest GitHub reports for the asset) before anything is replaced.
+// When signing keys are built in (signing-keys.pem), SHA256SUMS must also
+// carry a valid Ed25519 signature (SHA256SUMS.sig) by one of those keys.
 package update
 
 import (
@@ -16,6 +18,7 @@ import (
 	"bufio"
 	"compress/gzip"
 	"context"
+	"crypto/ed25519"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -99,6 +102,7 @@ type Updater struct {
 	API     string
 	HTTP    *http.Client
 	Arch    string
+	Keys    []ed25519.PublicKey // release signing keys; empty = signatures not required
 }
 
 // New prepares an updater for the running executable.
@@ -109,7 +113,7 @@ func New(current, workDir string) *Updater {
 	}
 	u := &Updater{
 		Current: current, Exe: exe, WorkDir: workDir, API: DefaultAPI, Arch: runtime.GOARCH,
-		HTTP: &http.Client{Timeout: 10 * time.Minute},
+		HTTP: &http.Client{Timeout: 10 * time.Minute}, Keys: TrustedKeys,
 	}
 	u.Kind, u.Reason = detect(exe)
 	return u
@@ -232,7 +236,7 @@ func (u *Updater) Prepare(ctx context.Context, r *Release, progress func(done, t
 	if sums == nil {
 		return nil, errors.New("release has no SHA256SUMS file; refusing to install an unverified download")
 	}
-	want, err := u.checksum(ctx, sums, a.Name)
+	want, err := u.checksum(ctx, r, sums, a.Name)
 	if err != nil {
 		return nil, err
 	}
@@ -271,13 +275,34 @@ func (u *Updater) Prepare(ctx context.Context, r *Release, progress func(done, t
 	return p, nil
 }
 
-func (u *Updater) checksum(ctx context.Context, sums *Asset, name string) (string, error) {
-	resp, err := u.get(ctx, sums.URL)
+func (u *Updater) fetchSmall(ctx context.Context, a *Asset) ([]byte, error) {
+	resp, err := u.get(ctx, a.URL)
 	if err != nil {
-		return "", fmt.Errorf("downloading SHA256SUMS: %w", err)
+		return nil, fmt.Errorf("downloading %s: %w", a.Name, err)
 	}
 	defer resp.Body.Close()
-	sc := bufio.NewScanner(io.LimitReader(resp.Body, 1<<20))
+	return io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+}
+
+func (u *Updater) checksum(ctx context.Context, r *Release, sums *Asset, name string) (string, error) {
+	body, err := u.fetchSmall(ctx, sums)
+	if err != nil {
+		return "", err
+	}
+	if len(u.Keys) > 0 {
+		sigAsset := findAsset(r, "SHA256SUMS.sig")
+		if sigAsset == nil {
+			return "", errors.New("this release is not signed; refusing to install it")
+		}
+		sig, err := u.fetchSmall(ctx, sigAsset)
+		if err != nil {
+			return "", err
+		}
+		if err := VerifySums(body, sig, u.Keys); err != nil {
+			return "", err
+		}
+	}
+	sc := bufio.NewScanner(strings.NewReader(string(body)))
 	for sc.Scan() {
 		f := strings.Fields(sc.Text())
 		if len(f) == 2 && strings.TrimPrefix(f[1], "*") == name && len(f[0]) == 64 {
