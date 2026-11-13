@@ -223,8 +223,12 @@ function handle({ t, d }) {
       selected = null;
       break;
     case 'disconnected':
-      addDivider('server', d.reason || 'Disconnected');
-      if (d.reason && d.reason !== 'Disconnected') toast(d.reason, 'warn');
+      if (d.reconnecting) {
+        addDivider('server', (d.reason || 'Connection lost') + ' · reconnecting automatically');
+      } else {
+        addDivider('server', d.reason || 'Disconnected');
+        if (d.reason && d.reason !== 'Disconnected') toast(d.reason, 'warn');
+      }
       stats = {};
       break;
   }
@@ -301,7 +305,7 @@ function renderToolbar() {
   $('btn-quit').replaceChildren(icon('power'));
   $('btn-new-channel').replaceChildren(icon('folderPlus'));
   $('btn-new-channel').disabled = !c;
-  $('server-title').textContent = c ? S.serverName : (S.connecting ? 'Connecting…' : 'Not connected');
+  $('server-title').textContent = c ? S.serverName : S.reconnecting ? 'Reconnecting…' : (S.connecting ? 'Connecting…' : 'Not connected');
   $('mic-thresh').style.display = S.audio.mode === 'va' ? '' : 'none';
   $('mic-thresh').style.left = dbToPct(S.audio.vaThreshold) + '%';
   const input = $('chat-input');
@@ -363,10 +367,16 @@ function renderTree() {
   const scroll = tree.scrollTop;
   tree.replaceChildren();
   if (!S.connected) {
+    const rc = S.reconnecting;
     tree.append(el('div', { class: 'empty' },
       el('img', { class: 'brand-art', src: 'brand.webp', alt: 'SecureSpeak', draggable: 'false' }),
-      el('div', { text: S.connecting ? 'Connecting…' : 'Not connected to a server' }),
-      !S.connecting && el('div', { style: 'margin-top:14px' }, el('button', { class: 'btn primary', onclick: openConnect }, icon('plug'), 'Connect'))));
+      rc ? el('div', {}, el('div', { style: 'color:var(--text);font-weight:600', text: 'Reconnecting to ' + (rc.server || 'the server') + '…' }),
+        el('div', { class: 'rc-count', text: reconnectText(rc) }))
+        : el('div', { text: S.connecting ? 'Connecting…' : 'Not connected to a server' }),
+      rc ? el('div', { style: 'margin-top:14px;display:flex;gap:8px;justify-content:center' },
+        el('button', { class: 'btn primary', onclick: () => act('reconnect_now') }, icon('plug'), 'Try now'),
+        el('button', { class: 'btn', onclick: () => act('reconnect_cancel') }, icon('x'), 'Cancel'))
+        : !S.connecting && el('div', { style: 'margin-top:14px' }, el('button', { class: 'btn primary', onclick: openConnect }, icon('plug'), 'Connect'))));
     return;
   }
   const root = el('div', { class: 'row' + (selected?.type === 'server' ? ' selected' : '') },
@@ -581,10 +591,23 @@ function renderUserInfo(box, u) {
     can('client.ban') && el('button', { class: 'btn danger', onclick: () => banUser(u) }, icon('ban'), 'Ban')));
 }
 
+function reconnectText(rc) {
+  if (S.connecting) return 'attempt ' + rc.attempt + ', connecting…';
+  const sec = Math.max(0, Math.ceil((rc.nextAt - Date.now()) / 1000));
+  return 'attempt ' + rc.attempt + (sec > 0 ? ', next try in ' + sec + ' s' : ', trying…');
+}
+// keep the reconnect countdown ticking
+setInterval(() => {
+  if (!S || !S.reconnecting) return;
+  renderStatus();
+  document.querySelectorAll('.rc-count').forEach((n) => { n.textContent = reconnectText(S.reconnecting); });
+}, 1000);
+
 function renderStatus() {
   const conn = $('st-conn');
   if (!S) return;
   if (S.connected) conn.replaceChildren(el('span', { class: 'dot on' }), 'Connected to ' + S.addr);
+  else if (S.reconnecting) conn.replaceChildren(el('span', { class: 'dot busy' }), 'Reconnecting… ' + reconnectText(S.reconnecting));
   else if (S.connecting) conn.replaceChildren(el('span', { class: 'dot busy' }), 'Connecting…');
   else conn.replaceChildren(el('span', { class: 'dot' }), 'Not connected');
   $('st-transport').textContent = S.connected && stats.transport ? 'Voice: ' + stats.transport : '';
@@ -1336,6 +1359,10 @@ async function openSettings(initialTab) {
       el('label', { class: 'check', style: 'margin-top:10px' },
         el('input', { type: 'checkbox', checked: S.autoMedia, onchange: (e) => act('auto_media', { on: e.target.checked }) }),
         'Show image and video previews automatically (images up to 16 MB, videos up to 64 MB)'),
+      el('div', { class: 'section-title', text: 'Connection' }),
+      el('label', { class: 'check' },
+        el('input', { type: 'checkbox', checked: S.autoReconnect, onchange: (e) => act('auto_reconnect', { on: e.target.checked }) }),
+        'Reconnect automatically when the connection is lost (and return to my channel)'),
       el('div', { class: 'section-title', text: 'Identity' }),
       el('div', { class: 'fp', text: S.identity }),
       el('div', { class: 'callout', text: 'There are no accounts. Your identity is an Ed25519 key pair stored only on this computer' + (S.keyProtected ? ', encrypted with your Windows login (DPAPI)' : ' (file readable only by your user)') + '. Others can verify you by comparing this fingerprint.' }),

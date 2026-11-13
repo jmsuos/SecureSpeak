@@ -110,6 +110,7 @@ type outFrame struct {
 }
 
 type session struct {
+	userClosed   atomic.Bool // the user disconnected (no automatic reconnect)
 	addr         string
 	host         string
 	certFP       string
@@ -249,6 +250,9 @@ type Client struct {
 	lastTalk     string
 
 	closed    chan struct{}
+	rc        *reconnector      // automatic reconnect in progress
+	lastConn  connParams        // last successful connection (for reconnecting)
+	chanPw    map[uint32]string // channel passwords used this session (to rejoin)
 	closeOnce sync.Once
 	closing   bool           // set under mu by Close; no new background writes after this
 	bg        sync.WaitGroup // background disk writes (settings, download verification)
@@ -356,6 +360,12 @@ func (c *Client) Connect(host string, port int, nick, serverPw, trustFP string) 
 	c.emitState()
 	err := c.connect(host, port, nick, serverPw, trustFP)
 	c.mu.Lock()
+	if err == nil {
+		if c.lastConn.host != host || c.lastConn.port != port {
+			c.chanPw = nil
+		}
+		c.lastConn = connParams{host: host, port: port, nick: nick, pw: serverPw}
+	}
 	c.connStep = ""
 	c.mu.Unlock()
 	c.emitState()
@@ -430,7 +440,7 @@ func (c *Client) connect(host string, port int, nick, serverPw, trustFP string) 
 		var e proto.Error
 		json.Unmarshal(m.D, &e)
 		tc.Close()
-		return errors.New(e.Msg)
+		return &ServerError{Code: e.Code, Msg: e.Msg}
 	}
 	var w proto.Welcome
 	if m.T != proto.TWelcome || json.Unmarshal(m.D, &w) != nil {
@@ -506,13 +516,18 @@ func (c *Client) Disconnect() {
 	c.mu.Lock()
 	s := c.sess
 	c.mu.Unlock()
+	c.mu.Lock()
+	c.cancelReconnectLocked()
+	c.mu.Unlock()
 	if s != nil {
+		s.userClosed.Store(true)
 		c.sayGoodbye(s)
-		c.dropSession(s, "Disconnected")
+		c.dropSession(s, "Disconnected", false)
 	}
+	c.emitState()
 }
 
-func (c *Client) dropSession(s *session, reason string) {
+func (c *Client) dropSession(s *session, reason string, reconnect bool) {
 	c.mu.Lock()
 	if c.sess != s {
 		c.mu.Unlock()
@@ -523,10 +538,14 @@ func (c *Client) dropSession(s *session, reason string) {
 		s.rotateT.Stop()
 	}
 	c.cleanupFilesLocked(s)
+	if reconnect {
+		c.startReconnectLocked(s.serverName, s.me.Channel, s.channels[s.me.Channel].Name)
+		reconnect = c.rc != nil
+	}
 	c.mu.Unlock()
 	s.close()
 	c.playSound("disconnect")
-	c.em.Emit("disconnected", map[string]any{"reason": reason})
+	c.em.Emit("disconnected", map[string]any{"reason": reason, "reconnecting": reconnect})
 	c.emitState()
 }
 
@@ -614,13 +633,16 @@ func (c *Client) rotateLocked(s *session) {
 
 func (c *Client) readLoop(s *session, br *bufio.Reader) {
 	reason := "Connection lost"
+	kicked := false
 	for {
 		s.conn.SetReadDeadline(time.Now().Add(60 * time.Second))
 		kind, payload, err := proto.ReadFrame(br)
 		if err != nil {
 			select {
 			case <-s.done:
-				reason = "Disconnected"
+				if s.userClosed.Load() {
+					reason = "Disconnected"
+				}
 			default:
 			}
 			break
@@ -641,11 +663,15 @@ func (c *Client) readLoop(s *session, br *bufio.Reader) {
 			var k proto.Kicked
 			json.Unmarshal(m.D, &k)
 			reason = fmt.Sprintf("Kicked from server by %s. %s", k.By, k.Reason)
+			if k.By == "" {
+				reason = k.Reason
+			}
+			kicked = true
 			break
 		}
 		c.handleMsg(s, m)
 	}
-	c.dropSession(s, reason)
+	c.dropSession(s, reason, !kicked && !s.userClosed.Load())
 }
 
 func unmarshal[T any](m proto.Message) (T, bool) {
@@ -705,6 +731,12 @@ func (c *Client) handleMsg(s *session, m proto.Message) {
 			if p.Info.Channel == s.me.Channel {
 				c.scheduleRotateLocked(s)
 				sound = "leave"
+			}
+			if cl.Reason == "reconnected" { // same person, new connection: no leave message or sound
+				sound = ""
+				c.peerGoneFilesLocked(s, cl.ID)
+				delete(s.peers, cl.ID)
+				break
 			}
 			if p.leaveMsg != "" {
 				c.system(fmt.Sprintf("%s disconnected (%s)", p.Info.Nick, p.leaveMsg))
