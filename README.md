@@ -1,6 +1,6 @@
 <p align="center"><img src="assets/securespeak-logo.png" alt="SecureSpeak" width="320"></p>
 
-# SecureSpeak 3.7
+# SecureSpeak 3.8
 
 A TeamSpeak-style voice and text server with end-to-end encryption. There are no
 accounts: you pick a nickname and connect. The server relays encrypted packets
@@ -11,6 +11,12 @@ and can never hear, read or fake anything.
 | Client | Windows 10/11 | `SecureSpeak-Setup-<version>.exe` installer (or the portable exe) |
 | Client | Ubuntu, Linux Mint, Debian (amd64/arm64) | `linux-client/securespeak_3.0.0_amd64.deb`, or the portable binary + `install-client.sh` |
 | Server | Linux (amd64/arm64) | `linux-server/securespeak-server` + `install-server.sh` |
+
+## What's new in 3.8
+
+- **10 color themes** (*Settings → Appearance*), based on the logo: SecureSpeak Navy (the new default), Midnight Shield, Bandana Red, Pin-up Retro, Espresso, Deep Ocean, Steel, Graphite Classic (the original look), and two light themes, Silver Rim and Pin-up Daylight.
+  - Each theme has a live preview.
+  - Picking one applies it at once, and it's remembered.
 
 ## What's new in 3.7
 
