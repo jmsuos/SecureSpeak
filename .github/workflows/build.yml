@@ -224,6 +224,11 @@ jobs:
   release:
     needs: [version, linux, windows]
     runs-on: ubuntu-latest
+    # A release created on github.com starts two runs (tag push + release
+    # published). They wait for each other here, and only the first publishes.
+    concurrency:
+      group: release-${{ github.ref }}
+      cancel-in-progress: false
     steps:
       - uses: actions/checkout@v6
       - uses: actions/download-artifact@v7
@@ -273,6 +278,12 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
+            if gh release view "$GITHUB_REF_NAME" --json assets --jq '.assets[].name' | grep -qx SHA256SUMS; then
+              # another run (tag push vs. release published) already attached the files;
+              # replacing them would mix files from two different builds
+              echo "::notice title=Already published::$GITHUB_REF_NAME already has its files; nothing to do."
+              exit 0
+            fi
             # release created on github.com: attach the files to it
             gh release upload "$GITHUB_REF_NAME" release/* --clobber
           else
