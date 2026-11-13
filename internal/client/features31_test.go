@@ -180,3 +180,56 @@ func TestMediaPreviewAutoLoad(t *testing.T) {
 		t.Fatal("sender has no preview of its own file")
 	}
 }
+
+// Viewers tell the sharer which video codecs they decode; H.264 frames
+// reach viewers; viewers that report nothing (older versions) are visible
+// to the sharer as such.
+func TestScreenShareCodecs(t *testing.T) {
+	_, host, port := startServer(t)
+	alice, aliceRec := newTestClient(t, host, port, "Alice")
+	bob, _ := newTestClient(t, host, port, "Bob")
+	carol, _ := newTestClient(t, host, port, "Carol")
+	waitFor(t, "keys", haveKey(bob, "Alice"))
+	aliceID := alice.State().MyID
+	bobID, carolID := bob.State().MyID, carol.State().MyID
+	alice.HandleCommand("share", mustJSON(map[string]any{"on": true}))
+	waitFor(t, "sharing visible", func() bool { return clientByNick(bob, "Alice").Sharing && clientByNick(carol, "Alice").Sharing })
+
+	bs := vsink(bob)
+	bob.HandleCommand("watch", mustJSON(map[string]any{"id": aliceID, "on": true, "codecs": []int{13, 11, 10}}))
+	carol.HandleCommand("watch", mustJSON(map[string]any{"id": aliceID, "on": true})) // like an older client
+	codecsOf := func(id uint32) (got []int, ok bool) {
+		aliceRec.mu.Lock()
+		defer aliceRec.mu.Unlock()
+		for _, e := range aliceRec.events {
+			m, isMap := e.v.(map[string]any)
+			if e.t != "keyframe" || !isMap || m["from"] != id {
+				continue
+			}
+			ok = true
+			got = nil
+			if cs, _ := m["codecs"].([]int); cs != nil {
+				got = cs
+			}
+		}
+		return
+	}
+	waitFor(t, "both viewers announced", func() bool { _, a := codecsOf(bobID); _, b := codecsOf(carolID); return a && b })
+	if got, _ := codecsOf(bobID); len(got) != 3 || got[0] != 13 {
+		t.Fatalf("bob's codecs at the sharer: %v", got)
+	}
+	if got, _ := codecsOf(carolID); len(got) != 0 {
+		t.Fatalf("legacy viewer should report no codecs, got %v", got)
+	}
+
+	// keyframe requests carry the codecs too
+	bob.HandleCommand("request_keyframe", mustJSON(map[string]any{"id": aliceID}))
+	alice.HandleVideoFrame(1, proto.CodecH264, []byte("\x00\x00\x00\x01h264-keyframe"))
+	waitFor(t, "H.264 frame at watcher", func() bool { return bs.n() >= 1 })
+	bs.mu.Lock()
+	f := bs.frames[0]
+	bs.mu.Unlock()
+	if f[6] != proto.CodecH264 || string(f[7:]) != "\x00\x00\x00\x01h264-keyframe" {
+		t.Fatal("H.264 frame corrupted")
+	}
+}

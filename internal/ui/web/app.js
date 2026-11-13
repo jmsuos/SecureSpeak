@@ -208,7 +208,7 @@ function handle({ t, d }) {
     case 'sound': AE.sound(d); break;
     case 'file': onFileEvent(d); break;
     case 'token': showNewToken(d); break;
-    case 'keyframe': SS.requestKeyframe(); break;
+    case 'keyframe': SS.requestKeyframe(d.from, d.codecs); break;
     case 'tokens': if (roleMgr) roleMgr.tokens(d.tokens || []); break;
     case 'members': if (roleMgr) roleMgr.members(d || []); break;
     case 'chat': addChat(d); break;
@@ -1253,7 +1253,7 @@ async function openSettings(initialTab) {
   let lvlRefs = null;
 
   const render = () => {
-    tabsBar.replaceChildren(...[['audio', 'Audio & voice'], ['sounds', 'Sounds'], ['whisper', 'Whisper'], ['general', 'Profile & security'], ['about', 'About SecureSpeak']].map(([k, l]) => {
+    tabsBar.replaceChildren(...[['audio', 'Audio & voice'], ['sounds', 'Sounds'], ['share', 'Screen share'], ['whisper', 'Whisper'], ['general', 'Profile & security'], ['about', 'About SecureSpeak']].map(([k, l]) => {
       const b = el('button', { class: (k === tab ? 'on' : '') + (k === 'about' && updateAvailable() ? ' has-update' : ''), text: l });
       b.onclick = () => { tab = k; if (k === 'about') checkForUpdates(); render(); };
       return b;
@@ -1264,6 +1264,7 @@ async function openSettings(initialTab) {
     else if (tab === 'whisper') renderWhisperTab(view);
     else if (tab === 'about') renderAboutTab(view);
     else if (tab === 'sounds') renderSoundsTab(view);
+    else if (tab === 'share') renderShareTab(view);
     else renderGeneralTab();
   };
 
@@ -1402,6 +1403,47 @@ async function openSettings(initialTab) {
   render();
   // device labels become available once the microphone permission is granted
   AE.updateMic().then(() => refreshDevices()).then(() => settingsView && settingsView.refresh());
+}
+
+// ---------------------------------------------------------------- screen share quality
+function renderShareTab(view) {
+  const q = Object.assign({ preset: 'smooth', fps: 30, height: 1080, mbps: 8, software: false }, S.share || {});
+  const save = (patch) => act('share_quality', Object.assign({}, q, patch));
+  const presets = [
+    ['sharp', 'Sharp', '15 fps · 1080p · up to 4 Mbit/s', 'Text, code, documents and slides'],
+    ['smooth', 'Smooth', '30 fps · 1080p · 6 Mbit/s', 'Everyday use, browsing, videos'],
+    ['gaming', 'Gaming', '60 fps · 1080p · 10 Mbit/s', 'Games and fast motion'],
+    ['custom', 'Custom', 'Your own frame rate, resolution and bitrate', 'For fast connections'],
+  ];
+  const card = ([k, name, spec, use]) => el('label', { class: 'q-card' + (q.preset === k ? ' on' : '') },
+    el('input', { type: 'radio', name: 'share-preset', checked: q.preset === k, onchange: () => save({ preset: k }) }),
+    el('div', {}, el('div', { class: 'q-name', text: name }), el('div', { class: 'q-spec', text: spec }), el('div', { class: 'hint', style: 'margin:0', text: use })));
+  const slider = (label, min, max, step, val, fmt, key) => {
+    const v = el('span', { class: 'val', text: fmt(val) });
+    const r = el('input', { type: 'range', min, max, step, value: val });
+    r.oninput = () => { v.textContent = fmt(+r.value); };
+    r.onchange = () => save({ [key]: +r.value });
+    return el('div', { class: 'slider-row' }, el('label', { text: label }), r, v);
+  };
+  const res = el('select', { onchange: (e) => save({ height: +e.target.value }) },
+    ...[[720, '720p'], [1080, '1080p (Full HD)'], [1440, '1440p (QHD)'], [2160, '2160p (4K)'], [0, 'Screen resolution']]
+      .map(([v, l]) => el('option', { value: v, text: l, selected: q.height === v })));
+  const mbit = q.preset === 'custom' ? q.mbps : (SHARE_PRESETS[q.preset] || {}).mbps || 4;
+  const gbPerHour = (mbit * 3600 / 8 / 1000).toFixed(1);
+  add(view,
+    el('div', { class: 'section-title', style: 'margin-top:4px', text: 'Quality' }),
+    el('div', { class: 'q-cards' }, ...presets.map(card)),
+    q.preset === 'custom' && el('div', { class: 'q-custom' },
+      slider('Frame rate', 5, 60, 5, q.fps, (v) => v + ' fps', 'fps'),
+      el('div', { class: 'slider-row' }, el('label', { text: 'Max resolution' }), res),
+      slider('Bitrate', 1, 25, 1, q.mbps, (v) => v + ' Mbit/s', 'mbps')),
+    el('div', { class: 'hint', text: 'Each viewer receives about ' + mbit + ' Mbit/s (≈ ' + gbPerHour + ' GB per hour), relayed by the server. Viewers with a slow connection skip frames instead of falling behind.' }),
+    el('div', { class: 'section-title', text: 'Encoding' }),
+    el('label', { class: 'check' },
+      el('input', { type: 'checkbox', checked: !q.software, onchange: (e) => save({ software: !e.target.checked }) }),
+      'Use the graphics card (hardware encoding)'),
+    el('div', { class: 'hint', text: 'Encodes H.264 on the GPU (NVIDIA NVENC, Intel Quick Sync, AMD AMF) so your processor stays free, falling back to VP9 in software when the GPU or a viewer can\'t do H.264. Changes apply the next time you start sharing.' }),
+    SS.sharing && el('div', { class: 'callout', style: 'margin-top:10px', text: 'Sharing now: ' + (SS.info() || 'starting…') }));
 }
 
 // ---------------------------------------------------------------- custom sounds
@@ -2029,6 +2071,9 @@ function renderShareButton() {
   b.classList.toggle('hidden', !allowed);
   btnContent(b, 'monitor', SS.sharing ? (SS.withAudio ? 'Stop sharing (with sound)' : 'Stop sharing') : 'Share screen');
   b.classList.toggle('sharing', SS.sharing);
+  const q = SS.quality();
+  b.title = SS.sharing ? 'Sharing: ' + (SS.info() || 'starting…') + ' — click to stop'
+    : 'Share your screen with your channel (end-to-end encrypted) · ' + q.fps + ' fps' + (q.height ? ', up to ' + q.height + 'p' : '') + ' · change in Settings → Screen share';
 }
 
 async function toggleShare() {

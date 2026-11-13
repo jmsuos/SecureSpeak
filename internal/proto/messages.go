@@ -251,15 +251,17 @@ type ServerPassword struct {
 
 // Watch subscribes to (On) or leaves a user's screen share.
 type Watch struct {
-	ID uint32 `json:"id"`
-	On bool   `json:"on"`
+	ID     uint32 `json:"id"`
+	On     bool   `json:"on"`
+	Codecs []int  `json:"codecs,omitempty"` // video codecs the viewer can decode (empty: VP8/VP9 only)
 }
 
 // KeyframeReq: client -> server names the sharer (To); server -> sharer
 // names the viewer (From).
 type KeyframeReq struct {
-	To   uint32 `json:"to,omitempty"`
-	From uint32 `json:"from,omitempty"`
+	To     uint32 `json:"to,omitempty"`
+	From   uint32 `json:"from,omitempty"`
+	Codecs []int  `json:"codecs,omitempty"` // server -> sharer: what the viewer can decode
 }
 
 type ClientLeave struct {

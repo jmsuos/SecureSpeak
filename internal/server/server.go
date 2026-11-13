@@ -64,6 +64,7 @@ type Client struct {
 	Key         string   // hex identity key (proven on connect)
 	Sharing     bool     // screen share active
 	Watching    uint32   // id of the sharer this client watches (0 = none)
+	VideoCodecs []int    // video codecs this client can decode (from watch)
 	Roles       []uint32 // assigned roles (besides the default role)
 	Owner       bool
 	Muted       bool
@@ -813,7 +814,7 @@ func (s *Server) handle(c *Client, m proto.Message) bool {
 			s.mu.RLock()
 			sharer := s.clients[kr.To]
 			if sharer != nil && c.Watching == sharer.ID {
-				sharer.send(proto.TKeyframeReq, proto.KeyframeReq{From: c.ID})
+				sharer.send(proto.TKeyframeReq, proto.KeyframeReq{From: c.ID, Codecs: c.VideoCodecs})
 			}
 			s.mu.RUnlock()
 		}
@@ -1515,7 +1516,18 @@ func (s *Server) watch(c *Client, w proto.Watch) {
 		return
 	}
 	c.Watching = t.ID
-	t.send(proto.TKeyframeReq, proto.KeyframeReq{From: c.ID}) // new viewer needs a keyframe
+	c.VideoCodecs = cleanCodecs(w.Codecs)
+	t.send(proto.TKeyframeReq, proto.KeyframeReq{From: c.ID, Codecs: c.VideoCodecs}) // new viewer needs a keyframe
+}
+
+func cleanCodecs(in []int) []int {
+	var out []int
+	for _, x := range in {
+		if x > 0 && x < 256 && len(out) < 8 {
+			out = append(out, x)
+		}
+	}
+	return out
 }
 
 // routeVideo relays an end-to-end encrypted, signed screen share frame to

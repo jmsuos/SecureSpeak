@@ -397,3 +397,16 @@ video.media-thumb { cursor: default; }
 .yt-shield { position: absolute; inset: 0; }
 .badge.yt { background: #ff0033; color: #fff; border-color: #ff0033; }
 .rc-count { color: var(--dim); font-size: 12.5px; margin-top: 4px; font-variant-numeric: tabular-nums; }
+
+/* ---- screen share quality ---- */
+.q-cards { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.q-card { display: flex; gap: 10px; align-items: flex-start; padding: 10px 12px; border: 1px solid var(--line); border-radius: 9px; background: var(--panel-2); cursor: pointer; }
+.q-card.on { border-color: var(--accent); box-shadow: 0 0 0 2px rgba(91, 124, 250, .3); }
+.q-card input { margin-top: 3px; }
+.q-name { font-weight: 600; }
+.q-spec { color: var(--accent-2); font-size: 12.5px; margin: 1px 0 2px; }
+.q-custom { margin-top: 12px; padding: 12px; border: 1px solid var(--line); border-radius: 9px; }
+.q-custom .slider-row:first-child { margin-top: 0; }
+.q-custom select { flex: 1; height: 32px; border-radius: 7px; border: 1px solid var(--line); background: var(--bg); padding: 0 9px; outline: none; color-scheme: dark; }
+.q-custom select:focus { border-color: var(--accent); }
+.slider-row input[type=range] { flex: 1; }

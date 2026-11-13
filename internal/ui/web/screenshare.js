@@ -2,18 +2,39 @@
 // SecureSpeak screen share.
 //
 // Sharing: getDisplayMedia -> VideoFrames (MediaStreamTrackProcessor, or a
-// canvas fallback) -> WebCodecs VP9 (VP8 fallback) -> local WebSocket ->
-// core, which encrypts with the channel voice key, signs and sends it.
+// canvas fallback) -> WebCodecs encoder -> local WebSocket -> core, which
+// encrypts with the channel voice key, signs and sends it.
+// Encoder choice: H.264 on the GPU (NVENC, Quick Sync, AMF...), then VP9 on
+// the GPU, then VP9/VP8 in software, limited to codecs every viewer can
+// decode (viewers report that when they start watching).
 // Watching: core delivers decrypted frames for the sharer we subscribed to
 // -> VideoDecoder -> canvas.
 
-const VCODEC = { 11: 'vp09.00.10.08', 10: 'vp8' };
+const VCODEC = { 13: 'avc1.640034', 11: 'vp09.00.10.08', 10: 'vp8' }; // decoder strings
+const VNAME = { 13: 'H.264', 11: 'VP9', 10: 'VP8' };
+const LEGACY_CODECS = [10, 11]; // viewers that don't report codecs (older versions)
+
+// Quality presets; "custom" uses the user's own numbers.
+const SHARE_PRESETS = {
+  sharp: { fps: 15, height: 1080, mbps: 0, hint: 'detail' }, // 0 = automatic (by resolution, max 4 Mbit/s)
+  smooth: { fps: 30, height: 1080, mbps: 6, hint: 'motion' },
+  gaming: { fps: 60, height: 1080, mbps: 10, hint: 'motion' },
+};
+
+// H.264 level for the resolution and frame rate (High profile).
+function avcCodec(w, h, fps) {
+  const mbs = Math.ceil(w / 16) * Math.ceil(h / 16), rate = mbs * fps;
+  if (mbs <= 8704 && rate <= 522240) return 'avc1.64002A'; // 4.2: 1080p60
+  if (mbs <= 22080 && rate <= 983040) return 'avc1.640033'; // 5.1: 1440p60, 4K30
+  return 'avc1.640034'; // 5.2: 4K60
+}
 const ACODEC_SHARE = 12; // stereo Opus for the shared sound
 const MAX_FRAME = 900 * 1024;
 
 const SS = {
   // ---- sharing
   track: null, encoder: null, codecId: 0, w: 0, h: 0, fps: 15, count: 0, forceKey: false,
+  q: null, hw: false, rateScale: 1, viewers: new Map(), decodable: null,
   timer: null, reader: null, lastTs: 0, sent: 0, sharing: false,
   // ---- watching
   watching: 0, decoder: null, decCodec: 0, waitKey: true, lastKeyReq: 0, ts: 0, frames: 0,
@@ -32,8 +53,14 @@ const SS = {
     const sup = navigator.mediaDevices.getSupportedConstraints ? navigator.mediaDevices.getSupportedConstraints() : {};
     const audio = { echoCancellation: false, noiseSuppression: false, autoGainControl: false, channelCount: 2 };
     if (sup.restrictOwnAudio) audio.restrictOwnAudio = true;
+    this.q = this.quality();
+    this.fps = this.q.fps;
+    this.rateScale = 1;
+    this.viewers = new Map();
+    const video = { frameRate: { ideal: this.q.fps, max: this.q.fps } };
+    if (this.q.height) { video.height = { max: this.q.height }; video.width = { max: Math.round(this.q.height * 32 / 9) }; }
     const stream = await navigator.mediaDevices.getDisplayMedia({
-      video: { frameRate: { ideal: 15, max: 30 }, width: { max: 1920 }, height: { max: 1080 } },
+      video,
       audio, systemAudio: 'include', windowAudio: 'system', selfBrowserSurface: 'exclude',
     });
     this.track = stream.getVideoTracks()[0];
@@ -43,7 +70,7 @@ const SS = {
     if (this.audioTrack) {
       try { await this.startAudio(); } catch (e) { console.warn('share audio', e); this.withAudio = false; }
     }
-    try { this.track.contentHint = 'detail'; } catch (e) { /* optional */ }
+    try { this.track.contentHint = this.q.hint; } catch (e) { /* optional */ }
     this.track.addEventListener('ended', () => this.stop());
     this.sharing = true;
     this.count = 0;
@@ -67,6 +94,33 @@ const SS = {
   },
 
   changed() { if (this.onChange) this.onChange(); },
+
+  // the user's quality setting (S.share from the core)
+  quality() {
+    const q = (typeof S !== 'undefined' && S && S.share) || { preset: 'smooth' }; // S is app.js's state (not on window)
+    const base = q.preset === 'custom'
+      ? { fps: q.fps || 30, height: q.height, mbps: q.mbps || 8, hint: (q.fps || 30) >= 30 ? 'motion' : 'detail' }
+      : SHARE_PRESETS[q.preset] || SHARE_PRESETS.smooth;
+    return Object.assign({ preset: q.preset || 'smooth', software: !!q.software }, base);
+  },
+
+  // codecs every current viewer can decode
+  allowed(id) {
+    for (const codecs of this.viewers.values()) if (!codecs.includes(id)) return false;
+    return true;
+  },
+
+  // A viewer (re)started watching or needs a keyframe; codecs = what it decodes.
+  onViewer(from, codecs) {
+    this.viewers.set(from, Array.isArray(codecs) && codecs.length ? codecs : LEGACY_CODECS);
+    if (this.codecId && !this.allowed(this.codecId)) this.w = 0; // reconfigure with a codec everyone can watch
+    this.forceKey = true;
+  },
+
+  info() {
+    if (!this.sharing || !this.codecId) return '';
+    return VNAME[this.codecId] + (this.hw ? ' · GPU' : ' · CPU') + ' · ' + this.fps + ' fps · ' + this.h + 'p';
+  },
 
   async pump() {
     if (window.MediaStreamTrackProcessor) {
@@ -99,24 +153,37 @@ const SS = {
   async configure(w, h) {
     if (this.encoder) { try { this.encoder.close(); } catch (e) { /* closed */ } }
     this.encoder = null;
-    for (const id of [11, 10]) {
+    const q = this.q || this.quality();
+    const bitrate = Math.round((q.mbps ? q.mbps * 1e6 : Math.min(4e6, Math.max(8e5, w * h * 1.4))) * this.rateScale);
+    // GPU first (unless switched off), then software
+    const tries = [];
+    if (!q.software) tries.push([13, 'prefer-hardware'], [11, 'prefer-hardware']);
+    tries.push([11, 'no-preference'], [10, 'no-preference']);
+    for (const [id, accel] of tries) {
+      if (!this.allowed(id)) continue;
       const cfg = {
-        codec: VCODEC[id], width: w, height: h, framerate: this.fps,
-        bitrate: Math.min(4_000_000, Math.max(800_000, Math.round(w * h * 1.4))),
-        latencyMode: 'realtime',
+        codec: id === 13 ? avcCodec(w, h, this.fps) : VCODEC[id], width: w, height: h, framerate: this.fps,
+        bitrate, bitrateMode: 'variable', latencyMode: 'realtime', hardwareAcceleration: accel,
       };
+      if (id === 13) cfg.avc = { format: 'annexb' }; // parameter sets in-band: viewers can start at any keyframe
       let ok = false;
       try { ok = (await VideoEncoder.isConfigSupported(cfg)).supported; } catch (e) { ok = false; }
       if (!ok) continue;
       const enc = new VideoEncoder({
         output: (chunk) => this.onChunk(chunk, id),
-        error: (e) => { console.warn('video encoder', e); this.encoder = null; },
+        error: (e) => {
+          console.warn('video encoder', e);
+          this.encoder = null;
+          if (accel === 'prefer-hardware') { this.q = Object.assign({}, this.q, { software: true }); } // GPU encoder failed: use software
+        },
       });
-      enc.configure(cfg);
-      this.encoder = enc; this.codecId = id; this.w = w; this.h = h; this.forceKey = true;
+      try { enc.configure(cfg); } catch (e) { continue; }
+      this.encoder = enc; this.codecId = id; this.hw = accel === 'prefer-hardware';
+      this.w = w; this.h = h; this.forceKey = true;
+      this.changed();
       return;
     }
-    throw new Error('No VP9/VP8 encoder available');
+    throw new Error('No video encoder available');
   },
 
   async handle(frame) {
@@ -128,7 +195,7 @@ const SS = {
       const w = frame.displayWidth & ~1, h = frame.displayHeight & ~1;
       if (!this.encoder || this.encoder.state !== 'configured' || w !== this.w || h !== this.h) await this.configure(w, h);
       if (this.encoder.encodeQueueSize > 2) return; // encoder busy: skip frame
-      const key = this.forceKey || this.count % 300 === 0; // periodic keyframe every ~20 s
+      const key = this.forceKey || this.count % (this.fps * 20) === 0; // periodic keyframe every ~20 s
       this.forceKey = false;
       this.encoder.encode(frame, { keyFrame: key });
       this.count++;
@@ -140,7 +207,12 @@ const SS = {
   },
 
   onChunk(chunk, codecId) {
-    if (chunk.byteLength > MAX_FRAME) { this.forceKey = true; return; }
+    if (chunk.byteLength > MAX_FRAME) {
+      // too big to send (very high bitrate/resolution): lower the bitrate
+      this.rateScale = Math.max(0.2, this.rateScale * 0.7);
+      this.w = 0; this.forceKey = true;
+      return;
+    }
     const msg = new Uint8Array(3 + chunk.byteLength);
     msg[0] = 2;
     msg[1] = chunk.type === 'key' ? 1 : 0;
@@ -149,7 +221,23 @@ const SS = {
     if (AE.ws && AE.ws.readyState === 1) { AE.ws.send(msg); this.sent++; }
   },
 
-  requestKeyframe() { this.forceKey = true; },
+  requestKeyframe(from, codecs) {
+    if (from) this.onViewer(from, codecs);
+    else this.forceKey = true;
+  },
+
+  // which codecs this browser can decode (sent when we start watching)
+  async decodableCodecs() {
+    if (this.decodable) return this.decodable;
+    const out = [];
+    if (typeof VideoDecoder !== 'undefined') {
+      for (const id of [13, 11, 10]) {
+        try { if ((await VideoDecoder.isConfigSupported({ codec: VCODEC[id] })).supported) out.push(id); } catch (e) { /* no */ }
+      }
+    }
+    this.decodable = out.length ? out : LEGACY_CODECS;
+    return this.decodable;
+  },
 
   // ---- shared sound: capture -> stereo Opus 128 kbit/s -> core
   async startAudio() {
@@ -233,13 +321,13 @@ const SS = {
   },
 
   // ---- watching
-  watch(id) {
+  async watch(id) {
     if (this.watching && this.watching !== id) this.unwatch(true);
     this.watching = id;
     this.waitKey = true;
     this.frames = 0;
-    act('watch', { id, on: true });
     this.changed();
+    act('watch', { id, on: true, codecs: await this.decodableCodecs() });
   },
 
   unwatch(silent) {

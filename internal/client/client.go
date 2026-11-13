@@ -828,7 +828,7 @@ func (c *Client) handleMsg(s *session, m proto.Message) {
 	case proto.TKeyframeReq:
 		stateChanged = false
 		if kr, ok := unmarshal[proto.KeyframeReq](m); ok && c.sharing {
-			c.em.Emit("keyframe", map[string]any{"from": kr.From})
+			c.em.Emit("keyframe", map[string]any{"from": kr.From, "codecs": kr.Codecs})
 		}
 	case proto.TKeyDist:
 		stateChanged = false
@@ -1548,7 +1548,7 @@ func (c *Client) handleVideo(s *session, payload []byte) {
 		return
 	}
 	pt, err := k.OpenVoice(sender, inner)
-	if err != nil || len(pt) < 3 || (pt[0] != proto.CodecVP8 && pt[0] != proto.CodecVP9 && pt[0] != proto.CodecOpusShare) || !p.vwins[keyID].Check(ctr) {
+	if err != nil || len(pt) < 3 || (pt[0] != proto.CodecVP8 && pt[0] != proto.CodecVP9 && pt[0] != proto.CodecH264 && pt[0] != proto.CodecOpusShare) || !p.vwins[keyID].Check(ctr) {
 		c.mu.Unlock()
 		return
 	}
