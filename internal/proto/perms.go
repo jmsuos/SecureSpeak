@@ -10,6 +10,7 @@ const (
 	PermChannelEdit       = "channel.edit"
 	PermChannelDelete     = "channel.delete"
 	PermChannelJoinAny    = "channel.join.any"
+	PermChannelIcon       = "channel.icon"
 
 	PermVoiceSpeak   = "voice.speak"
 	PermVoiceWhisper = "voice.whisper"
@@ -49,6 +50,7 @@ var PermCatalog = []PermInfo{
 	{PermChannelEdit, "Channels", "Edit any channel"},
 	{PermChannelDelete, "Channels", "Delete any channel"},
 	{PermChannelJoinAny, "Channels", "Join any channel (ignore password and user limit)"},
+	{PermChannelIcon, "Channels", "Set channel icons (permanent channels, incl. uploading images)"},
 	{PermVoiceSpeak, "Voice & chat", "Speak"},
 	{PermVoiceWhisper, "Voice & chat", "Whisper"},
 	{PermScreenShare, "Voice & chat", "Share screen"},

@@ -270,6 +270,17 @@ func (c *Client) HandleCommand(cmd string, raw json.RawMessage) (any, error) {
 		json.Unmarshal(raw, &ce)
 		return nil, c.withSession(func(s *session) error { s.send(proto.TChanEdit, ce); return nil })
 
+	case "chan_icon":
+		var ci struct {
+			ID   uint32 `json:"id"`
+			Icon string `json:"icon"`
+			PNG  []byte `json:"png"` // base64 in JSON
+		}
+		if err := json.Unmarshal(raw, &ci); err != nil {
+			return nil, errors.New("bad icon")
+		}
+		return nil, c.setChannelIcon(ci.ID, ci.Icon, ci.PNG)
+
 	case "chan_delete":
 		return nil, c.withSession(func(s *session) error {
 			s.send(proto.TChanDelete, proto.IDOnly{ID: a.id("id")})

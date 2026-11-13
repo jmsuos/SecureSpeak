@@ -1,6 +1,6 @@
 <p align="center"><img src="assets/securespeak-logo.png" alt="SecureSpeak" width="320"></p>
 
-# SecureSpeak 3.2
+# SecureSpeak 3.3
 
 A TeamSpeak-style voice and text server with end-to-end encryption. There are no
 accounts: you pick a nickname and connect. The server relays encrypted packets
@@ -11,6 +11,15 @@ and can never hear, read or fake anything.
 | Client | Windows 10/11 | `SecureSpeak-Setup-<version>.exe` installer (or the portable exe) |
 | Client | Ubuntu, Linux Mint, Debian (amd64/arm64) | `linux-client/securespeak_3.0.0_amd64.deb`, or the portable binary + `install-client.sh` |
 | Server | Linux (amd64/arm64) | `linux-server/securespeak-server` + `install-server.sh` |
+
+## What's new in 3.3
+
+- **Channel icons:** right-click a permanent channel and choose **Set channel icon…**, or click **Icon** in the channel info.
+  - **Built-in icons:** pick one of 27, such as gaming, music, AFK, staff or announcements.
+  - **Your own icon:** upload a `.png` or `.ico`. Transparency is kept, and images are scaled down to at most 64×64 pixels.
+  - **Who can set them:** only roles with the new permission *Set channel icons*. Guests don't have it by default, Server Admins and Moderators do, and you can change this in **Roles & permissions**.
+  - **Stored on the server:** channel icons are visible to everyone on the server and stored by the server, like channel names. Uploads are checked and re-encoded by the server, so only plain image pixels are stored.
+  - **Temporary channels** don't get icons.
 
 ## What's new in 3.2
 

@@ -33,6 +33,8 @@ const (
 	TKeyframeReq = "keyframe_req"    // ask a sharer for a video keyframe
 	TFileCtl     = "file_ctl"        // both directions: E2E-encrypted transfer control
 	TFileData    = "file_data"       // both directions: E2E-encrypted file chunk
+	TChanIcon    = "chan_icon"       // set or remove a permanent channel's icon
+	TIconGet     = "icon_get"        // ask for a custom channel icon by hash
 
 	// server -> client
 	TWelcome      = "welcome"
@@ -48,10 +50,11 @@ const (
 	TPong         = "pong"
 	TServerUpdate = "server_update"
 	TNotice       = "notice"
-	TRoles        = "roles"   // full role list (sent on change)
-	TToken        = "token"   // a freshly created privilege key (shown once)
-	TTokens       = "tokens"  // privilege key list
-	TMembers      = "members" // identities with roles
+	TRoles        = "roles"     // full role list (sent on change)
+	TToken        = "token"     // a freshly created privilege key (shown once)
+	TTokens       = "tokens"    // privilege key list
+	TMembers      = "members"   // identities with roles
+	TIconData     = "icon_data" // a custom channel icon (answer to icon_get)
 )
 
 type ChannelInfo struct {
@@ -66,7 +69,27 @@ type ChannelInfo struct {
 	Default     bool   `json:"def,omitempty"`
 	Order       int    `json:"order,omitempty"`
 	Owner       uint32 `json:"owner,omitempty"`
+	Icon        string `json:"icon,omitempty"` // "std:<name>" built-in icon, "img:<sha256 hex>" custom PNG
 }
+
+// ChanIcon sets a channel icon: Icon "std:<name>", or PNG for a custom one,
+// or neither to remove it.
+type ChanIcon struct {
+	ID   uint32 `json:"id"`
+	Icon string `json:"icon,omitempty"`
+	PNG  []byte `json:"png,omitempty"`
+}
+
+// IconData carries a custom channel icon (PNG, at most MaxIconSize pixels).
+type IconData struct {
+	Hash string `json:"hash"`
+	PNG  []byte `json:"png,omitempty"` // empty: unknown icon
+}
+
+const (
+	MaxIconSize  = 64        // pixels per side
+	MaxIconBytes = 64 * 1024 // encoded PNG
+)
 
 type ClientInfo struct {
 	ID          uint32   `json:"id"`
