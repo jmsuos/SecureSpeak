@@ -18,6 +18,7 @@ and can never hear, read or fake anything.
 - **Automatic updates.** SecureSpeak checks GitHub for a new release when it starts and every 6 hours. When there is one, a notice offers **Install and restart**. SecureSpeak then closes, installs the update and opens again.
 - **About SecureSpeak** (*Settings → About SecureSpeak*) shows your version and checks for updates as soon as you open it, the way Chrome and Brave do. It also shows what's new in the latest release. You can switch automatic checks off there.
   - **Checked before installing:** every download is checked against the release's `SHA256SUMS` (and the SHA-256 that GitHub reports for the file). Nothing is replaced if they don't match.
+  - **Signed releases (3.2.2):** `SHA256SUMS` is signed with the project's release key (Ed25519, `SHA256SUMS.sig`). The app only installs updates with a valid signature, so even someone who took over the GitHub account couldn't push a fake update. See [Release signing](#release-signing).
   - **How it installs:** the Windows setup runs silently, the portable exe and the `~/.local` Linux binary are swapped in place, and the `.deb` is installed with `pkexec` (you're asked for your password).
 - **Quit button.** The ⏻ button at the top right (or **Ctrl+Q**) disconnects, closes the window and stops SecureSpeak.
 
@@ -243,6 +244,23 @@ internal/ui              local bridge (HTTP, SSE, WebSocket) + web UI, audio eng
   sender must stay online until recipients finish downloading.
 - Not built yet: a server-side channel file browser, recording, a tray icon and
   a macOS client.
+
+## Release signing
+
+Updates are only installed when `SHA256SUMS` carries a valid signature by a
+key listed in [`internal/update/signing-keys.pem`](internal/update/signing-keys.pem).
+The release workflow signs it with the `UPDATE_SIGNING_KEY` Actions secret and
+then checks the signature with the app's own code. Publishing a release fails
+if the key is missing or doesn't match.
+
+To check a download yourself (OpenSSL 3):
+
+```sh
+grep -v '^#' signing-keys.pem > key.pub     # the public key from the repository
+base64 -d SHA256SUMS.sig > sig.bin
+openssl pkeyutl -verify -pubin -inkey key.pub -rawin -in SHA256SUMS -sigfile sig.bin
+sha256sum -c --ignore-missing SHA256SUMS
+```
 
 ## License
 
