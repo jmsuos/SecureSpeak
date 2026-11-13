@@ -74,6 +74,8 @@ type Config struct {
 	LeaveSound   *SoundRef           `json:"leaveSound,omitempty"`   // ... and this when we leave
 	AppSounds    map[string]SoundRef `json:"appSounds,omitempty"`    // replaced notification sounds
 	NoPeerSounds bool                `json:"noPeerSounds,omitempty"` // don't play other people's join/leave sounds
+
+	NoAutoReconnect bool `json:"noAutoReconnect,omitempty"` // don't reconnect after a lost connection
 }
 
 func defaultConfig() *Config {

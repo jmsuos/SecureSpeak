@@ -527,6 +527,20 @@ func (s *Server) handleConn(raw net.Conn) {
 	}
 
 	s.mu.Lock()
+	// The same identity reconnecting (e.g. after an internet drop the old
+	// connection may linger until it times out): replace the old connection.
+	for id, o := range s.clients {
+		if o.Key == key {
+			delete(s.clients, id)
+			s.broadcastLocked(proto.TClientLeave, proto.ClientLeave{ID: id, Reason: "reconnected"}, 0)
+			s.cleanupTempLocked(o.Channel)
+			// tell the old connection why, so it doesn't reconnect (two copies
+			// of the same identity would otherwise push each other out forever)
+			o.send(proto.TKicked, proto.Kicked{Reason: "You connected again with the same identity (from another window or computer)."})
+			go func(o *Client) { time.Sleep(time.Second); o.close() }(o)
+			s.Logf("client %d %q replaced by a new connection of the same identity", id, o.Nick)
+		}
+	}
 	if len(s.clients) >= s.cfg.MaxClients {
 		s.mu.Unlock()
 		fail("full", "server is full")

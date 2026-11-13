@@ -94,6 +94,8 @@ type uiState struct {
 	LeaveSound      *SoundRef           `json:"leaveSound"`
 	AppSounds       map[string]SoundRef `json:"appSounds"`
 	PeerSounds      bool                `json:"peerSounds"`
+	Reconnecting    *uiReconnect        `json:"reconnecting"`
+	AutoReconnect   bool                `json:"autoReconnect"`
 	KeyProtected    bool                `json:"keyProtected"`
 	MaxClients      int                 `json:"maxClients"`
 }
@@ -110,6 +112,7 @@ func (c *Client) stateLocked() uiState {
 		Platform: runtime.GOOS, Version: AppVersion, Sharing: c.sharing, AutoMedia: !c.cfg.NoAutoMedia,
 		LeaveMessage: c.cfg.LeaveMessage, JoinSound: c.cfg.JoinSound, LeaveSound: c.cfg.LeaveSound,
 		AppSounds: c.cfg.AppSounds, PeerSounds: !c.cfg.NoPeerSounds,
+		Reconnecting: c.reconnectStateLocked(), AutoReconnect: !c.cfg.NoAutoReconnect,
 		KeyProtected: platform.ProtectsSecrets,
 		Channels:     []proto.ChannelInfo{}, Clients: []uiClient{},
 		Perms: []string{}, Roles: []proto.RoleInfo{}, PermCatalog: proto.PermCatalog,
@@ -250,6 +253,9 @@ func (c *Client) HandleCommand(cmd string, raw json.RawMessage) (any, error) {
 		return map[string]any{"state": c.State()}, nil
 
 	case "connect":
+		c.mu.Lock()
+		c.cancelReconnectLocked()
+		c.mu.Unlock()
 		err := c.Connect(a.str("host"), int(a.num("port")), a.str("nick"), a.str("password"), a.str("trust"))
 		var ue *UntrustedError
 		if errors.As(err, &ue) {
@@ -261,7 +267,44 @@ func (c *Client) HandleCommand(cmd string, raw json.RawMessage) (any, error) {
 		c.Disconnect()
 		return nil, nil
 
+	case "reconnect_cancel":
+		c.mu.Lock()
+		c.cancelReconnectLocked()
+		c.mu.Unlock()
+		c.emitState()
+		return nil, nil
+
+	case "reconnect_now":
+		c.mu.Lock()
+		if c.rc != nil {
+			select {
+			case c.rc.now <- struct{}{}:
+			default:
+			}
+		}
+		c.mu.Unlock()
+		return nil, nil
+
+	case "auto_reconnect":
+		c.mu.Lock()
+		c.cfg.NoAutoReconnect = !a.boolean("on")
+		if c.cfg.NoAutoReconnect {
+			c.cancelReconnectLocked()
+		}
+		c.saveLocked()
+		c.mu.Unlock()
+		c.emitState()
+		return nil, nil
+
 	case "join":
+		if pw := a.str("password"); pw != "" {
+			c.mu.Lock()
+			if c.chanPw == nil {
+				c.chanPw = map[uint32]string{}
+			}
+			c.chanPw[a.id("id")] = pw
+			c.mu.Unlock()
+		}
 		return nil, c.withSession(func(s *session) error {
 			s.send(proto.TJoin, proto.Join{Channel: a.id("id"), Password: a.str("password")})
 			return nil

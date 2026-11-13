@@ -1,6 +1,6 @@
 <p align="center"><img src="assets/securespeak-logo.png" alt="SecureSpeak" width="320"></p>
 
-# SecureSpeak 3.4
+# SecureSpeak 3.5
 
 A TeamSpeak-style voice and text server with end-to-end encryption. There are no
 accounts: you pick a nickname and connect. The server relays encrypted packets
@@ -11,6 +11,14 @@ and can never hear, read or fake anything.
 | Client | Windows 10/11 | `SecureSpeak-Setup-<version>.exe` installer (or the portable exe) |
 | Client | Ubuntu, Linux Mint, Debian (amd64/arm64) | `linux-client/securespeak_3.0.0_amd64.deb`, or the portable binary + `install-client.sh` |
 | Server | Linux (amd64/arm64) | `linux-server/securespeak-server` + `install-server.sh` |
+
+## What's new in 3.5
+
+- **Automatic reconnect.** If the connection drops (internet trouble, or the server stopping or restarting for an update), SecureSpeak reconnects by itself and puts you back in your channel. A password-protected channel works too, if you joined it in this session.
+  - It retries after 1, 2, 5, 10, 20 and 30 seconds, then every minute.
+  - The chat shows just one line ("Connection lost · reconnecting automatically"), and the status bar shows the countdown. **Try now** and **Cancel** are on the start screen.
+  - It doesn't reconnect after you disconnect yourself, a kick or a ban, a wrong password, or a changed server certificate. You can switch it off in *Settings → Profile & security*.
+- **No more "ghost" users.** When you reconnect, the server replaces your old connection right away instead of showing you twice until it times out. A second copy of the same identity takes over from the first, and the first doesn't fight back.
 
 ## What's new in 3.4
 
