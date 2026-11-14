@@ -455,6 +455,22 @@ function channelNode(ch, depth) {
 
 let dragUser = null;
 
+// "windows/amd64" + "3.9.0" -> "Win64 · v3.9.0"
+const PLATFORM_NAMES = { 'windows/amd64': 'Win64', 'windows/arm64': 'Win ARM64', 'windows/386': 'Win32', 'linux/amd64': 'Linux x64', 'linux/arm64': 'Linux ARM64', 'darwin/arm64': 'macOS (Apple silicon)', 'darwin/amd64': 'macOS (Intel)' };
+function clientLabel(u) {
+  if (!u.appVersion && !u.platform) return '';
+  const plat = PLATFORM_NAMES[u.platform] || u.platform || '';
+  const ver = !u.appVersion ? '' : /^\d/.test(u.appVersion) ? 'v' + u.appVersion : u.appVersion;
+  return [plat, ver].filter(Boolean).join(' · ');
+}
+// -1 / 0 / 1, numeric parts only ("3.10.0" > "3.9.2"); unknown versions sort lowest
+function cmpVersion(a, b) {
+  const p = (v) => (/^\d+(\.\d+)*/.exec(v || '') || ['0'])[0].split('.').map(Number);
+  const x = p(a), y = p(b);
+  for (let i = 0; i < Math.max(x.length, y.length); i++) { const d = (x[i] || 0) - (y[i] || 0); if (d) return d < 0 ? -1 : 1; }
+  return 0;
+}
+
 function userNode(u, depth) {
   const cls = ['row', 'user'];
   if (u.me) cls.push('me');
@@ -464,7 +480,7 @@ function userNode(u, depth) {
   if (talking.has(u.id)) cls.push('talking');
   if (whispering.has(u.id)) cls.push('whispering');
   if (selected?.type === 'client' && selected.id === u.id) cls.push('selected');
-  const row = el('div', { class: cls.join(' '), 'data-id': u.id, style: indent(depth), draggable: (u.me || (can('client.move') && canAct(u))) ? 'true' : null },
+  const row = el('div', { class: cls.join(' '), 'data-id': u.id, title: clientLabel(u) || null, style: indent(depth), draggable: (u.me || (can('client.move') && canAct(u))) ? 'true' : null },
     avatarNode(u),
     el('span', { class: 'name', text: u.nick }),
     (u.muted || u.serverMuted || u.deaf) && u.avatar && el('span', { class: 'st-icons' }, icon(u.deaf ? 'headOff' : 'micOff')),
@@ -555,6 +571,12 @@ function renderUserInfo(box, u) {
     ...roleBadges(u, 4),
     !u.me && u.verified && el('span', { class: 'badge verified', text: '✓ VERIFIED' })));
   add(box, el('div', { class: 'info-sub', text: (u.me ? 'This is you · ' : '') + statusText }));
+  const label = clientLabel(u);
+  const outdated = u.appVersion && /^\d/.test(u.appVersion) && U && U.latest && cmpVersion(u.appVersion, U.latest) < 0;
+  add(box, el('div', { class: 'kv' },
+    el('span', { class: 'k', text: 'Client' }),
+    el('span', {}, label || 'Unknown (their app or the server is older than v3.10.0)',
+      outdated && el('span', { class: 'badge outdated', title: 'The latest release is v' + U.latest, text: 'UPDATE AVAILABLE' }))));
   add(box, el('div', { class: 'k', style: 'color:var(--faint);font-size:12px', text: 'Identity fingerprint' }), el('div', { class: 'fp', text: u.fp }));
   if (u.me) {
     add(box, el('div', { class: 'actions' },

@@ -43,6 +43,8 @@ type uiClient struct {
 	Sharing     bool     `json:"sharing"`
 	Me          bool     `json:"me"`
 	Avatar      string   `json:"avatar"` // hash, "" = none
+	AppVersion  string   `json:"appVersion"`
+	Platform    string   `json:"platform"`
 }
 
 type uiWhisper struct {
@@ -164,7 +166,7 @@ func (c *Client) stateLocked() uiState {
 		ID: s.myID, Nick: s.me.Nick, Channel: s.me.Channel, Roles: nonNil(s.me.Roles), Owner: s.me.Owner, Power: myPower,
 		Muted: c.muted, Deaf: c.deaf, ServerMuted: s.me.ServerMuted, Away: c.away, AwayMsg: c.awayMsg,
 		FP: e2e.Fingerprint(c.id.Pub), Valid: true, Verified: true, HasKey: true, Volume: 1, Me: true,
-		Avatar: c.avatarHash, Sharing: c.sharing,
+		Avatar: c.avatarHash, Sharing: c.sharing, AppVersion: AppVersion, Platform: runtime.GOOS + "/" + runtime.GOARCH,
 	})
 	for _, p := range s.peers {
 		i := p.Info
@@ -173,6 +175,7 @@ func (c *Client) stateLocked() uiState {
 			ServerMuted: i.ServerMuted, Away: i.Away, AwayMsg: i.AwayMsg, FP: p.FP, Valid: p.Valid,
 			Verified: p.verified, KeyChanged: p.keyChanged, HasKey: len(p.keys) > 0,
 			Volume: p.volume, LocalMute: p.localMute, Avatar: p.avatarHash, Sharing: i.Sharing,
+			AppVersion: i.AppVersion, Platform: i.Platform,
 		})
 	}
 	sort.Slice(st.Clients, func(i, j int) bool {

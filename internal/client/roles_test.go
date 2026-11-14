@@ -5,6 +5,7 @@ import (
 	"crypto/tls"
 	"encoding/json"
 	"net"
+	"runtime"
 	"strconv"
 	"strings"
 	"testing"
@@ -267,4 +268,21 @@ func TestServerLogs(t *testing.T) {
 		}
 	}
 	t.Fatal("no proto.Logs event")
+}
+
+func TestClientVersionShown(t *testing.T) {
+	old := AppVersion
+	AppVersion = "3.10.0"
+	t.Cleanup(func() { AppVersion = old })
+	_, host, port := startServer(t)
+	_, _ = newTestClient(t, host, port, "Alice")
+	bob, _ := newTestClient(t, host, port, "Bob")
+	waitFor(t, "bob sees alice", func() bool { return clientByNick(bob, "Alice").ID != 0 })
+	for _, u := range bob.State().Clients {
+		if u.Nick == "Alice" || u.Me {
+			if u.AppVersion != "3.10.0" || u.Platform != runtime.GOOS+"/"+runtime.GOARCH {
+				t.Fatalf("%s: version %q platform %q", u.Nick, u.AppVersion, u.Platform)
+			}
+		}
+	}
 }

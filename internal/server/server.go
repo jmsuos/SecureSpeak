@@ -72,6 +72,8 @@ type Client struct {
 	ServerMuted bool
 	Away        bool
 	AwayMsg     string
+	AppVersion  string // self-reported client version and platform (shown to others)
+	Platform    string
 
 	ip   string
 	conn net.Conn
@@ -554,6 +556,7 @@ func (s *Server) handleConn(raw net.Conn) {
 	s.nextCli++
 	c.Nick = s.uniqueNickLocked(nick, 0)
 	c.Channel = s.defaultChannelLocked()
+	c.AppVersion, c.Platform = cleanToken(h.AppVersion, 32), cleanToken(h.Platform, 32)
 	if mem := s.members[key]; mem != nil { // roles follow the identity
 		c.Roles = append([]uint32(nil), mem.Roles...)
 		c.Owner = mem.Owner
@@ -583,7 +586,7 @@ func (s *Server) handleConn(raw net.Conn) {
 	s.broadcastLocked(proto.TClientJoin, s.clientInfo(c), c.ID)
 	s.mu.Unlock()
 
-	s.logf("client %d %q connected from %s", c.ID, c.Nick, ip)
+	s.logf("client %d %q connected from %s (SecureSpeak %s, %s)", c.ID, c.Nick, ip, orUnknown(c.AppVersion), orUnknown(c.Platform))
 	s.readLoop(c, br)
 
 	// disconnect
@@ -655,7 +658,28 @@ func (s *Server) clientInfo(c *Client) proto.ClientInfo {
 	return proto.ClientInfo{
 		ID: c.ID, Nick: c.Nick, Channel: c.Channel, IDPub: c.IDPub, EphPub: c.EphPub, Sig: c.Sig,
 		Roles: c.Roles, Owner: c.Owner, Sharing: c.Sharing, Muted: c.Muted, Deaf: c.Deaf, ServerMuted: c.ServerMuted, Away: c.Away, AwayMsg: c.AwayMsg,
+		AppVersion: c.AppVersion, Platform: c.Platform,
 	}
+}
+
+// cleanToken keeps a short self-reported value (version, platform) to
+// harmless characters.
+func orUnknown(v string) string {
+	if v == "" {
+		return "unknown"
+	}
+	return v
+}
+
+func cleanToken(v string, max int) string {
+	out := make([]byte, 0, len(v))
+	for i := 0; i < len(v) && len(out) < max; i++ {
+		ch := v[i]
+		if ch >= 'a' && ch <= 'z' || ch >= 'A' && ch <= 'Z' || ch >= '0' && ch <= '9' || ch == '.' || ch == '-' || ch == '+' || ch == '/' || ch == '_' {
+			out = append(out, ch)
+		}
+	}
+	return string(out)
 }
 
 func (s *Server) broadcastLocked(t string, v any, except uint32) {

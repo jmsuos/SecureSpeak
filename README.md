@@ -1,6 +1,6 @@
 <p align="center"><img src="assets/securespeak-logo.png" alt="SecureSpeak" width="320"></p>
 
-# SecureSpeak 3.9
+# SecureSpeak 3.10
 
 A TeamSpeak-style voice and text server with end-to-end encryption. There are no
 accounts: you pick a nickname and connect. The server relays encrypted packets
@@ -11,6 +11,13 @@ and can never hear, read or fake anything.
 | Client | Windows 10/11 | `SecureSpeak-Setup-<version>.exe` installer (or the portable exe) |
 | Client | Ubuntu, Linux Mint, Debian (amd64/arm64) | `linux-client/securespeak_3.0.0_amd64.deb`, or the portable binary + `install-client.sh` |
 | Server | Linux (amd64/arm64) | `linux-server/securespeak-server` + `install-server.sh` |
+
+## What's new in 3.10
+
+- **See which version others use.** A user's info panel (click their name) shows their app and platform, for example **Win64 · v3.10.0** or **Linux x64 · v3.9.0**. You also see it when you hover over a name in the channel tree.
+  - **Update label:** when someone runs an older version than the latest release, the panel adds *UPDATE AVAILABLE*.
+  - **Server logs:** the logs record the version of every connection.
+  - **Self-reported:** the version is reported by each app itself, like in TeamSpeak. It's shown for information and isn't checked.
 
 ## What's new in 3.9
 

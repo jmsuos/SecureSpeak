@@ -17,6 +17,7 @@ import (
 	"log"
 	"net"
 	"os"
+	"runtime"
 	"sort"
 	"strconv"
 	"strings"
@@ -420,6 +421,7 @@ func (c *Client) connect(host string, port int, nick, serverPw, trustFP string) 
 	hello, _ := proto.Encode(proto.THello, proto.Hello{
 		Version: proto.Version, Nick: nick, ServerPassword: serverPw,
 		IDPub: id.Pub, EphPub: keys.EphPub, Sig: keys.Sig, AuthSig: e2e.AuthSign(id, ekm),
+		AppVersion: AppVersion, Platform: runtime.GOOS + "/" + runtime.GOARCH,
 	})
 	if err := proto.WriteFrame(tc, proto.FrameJSON, hello); err != nil {
 		tc.Close()
