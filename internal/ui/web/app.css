@@ -454,3 +454,4 @@ body.stream-doc { margin: 0; background: #07090d; }
 .stage-bar.compact .stage-audio input[type=range] { width: 70px; }
 .stage-bar.compact .stage-audio .val { display: none; }
 .stage-bar { flex-wrap: wrap; }
+.badge.outdated { margin-left: 8px; background: rgba(245, 184, 74, .16); color: var(--warn-text); }

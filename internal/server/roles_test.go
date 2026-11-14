@@ -7,6 +7,7 @@ import (
 	"image/png"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"securespeak/internal/proto"
@@ -150,5 +151,22 @@ func TestRoleMigrationWatch(t *testing.T) {
 	}
 	if has(5, proto.PermChannelIcon) {
 		t.Fatal("3.3 migration re-ran on a schema-3 server")
+	}
+}
+
+func TestCleanToken(t *testing.T) {
+	for in, want := range map[string]string{
+		"3.10.0":                    "3.10.0",
+		"windows/amd64":             "windows/amd64",
+		"3.10.0-dev.4+g1a2b":        "3.10.0-dev.4+g1a2b",
+		"<script>alert(1)</script>": "scriptalert1/script",
+		"‮3.9 ✓ evil\n":             "3.9evil",
+	} {
+		if got := cleanToken(in, 32); got != want {
+			t.Errorf("cleanToken(%q) = %q, want %q", in, got, want)
+		}
+	}
+	if got := cleanToken(strings.Repeat("9", 100), 32); len(got) != 32 {
+		t.Fatalf("not truncated: %d", len(got))
 	}
 }

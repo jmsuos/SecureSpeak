@@ -120,6 +120,8 @@ type ClientInfo struct {
 	Away        bool     `json:"away,omitempty"`
 	AwayMsg     string   `json:"awaymsg,omitempty"`
 	Sharing     bool     `json:"sharing,omitempty"`
+	AppVersion  string   `json:"app,omitempty"` // client version as reported by the client, e.g. "3.10.0"
+	Platform    string   `json:"os,omitempty"`  // e.g. "windows/amd64"
 }
 
 type Hello struct {
@@ -133,6 +135,9 @@ type Hello struct {
 	// over keying material exported from this very TLS connection, so it
 	// cannot be replayed on another connection.
 	AuthSig []byte `json:"auth"`
+
+	AppVersion string `json:"app,omitempty"` // client version (shown to other users)
+	Platform   string `json:"os,omitempty"`  // GOOS/GOARCH
 }
 
 type Welcome struct {
