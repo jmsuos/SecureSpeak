@@ -1,6 +1,6 @@
 <p align="center"><img src="assets/securespeak-logo.png" alt="SecureSpeak" width="320"></p>
 
-# SecureSpeak 3.8
+# SecureSpeak 3.9
 
 A TeamSpeak-style voice and text server with end-to-end encryption. There are no
 accounts: you pick a nickname and connect. The server relays encrypted packets
@@ -11,6 +11,14 @@ and can never hear, read or fake anything.
 | Client | Windows 10/11 | `SecureSpeak-Setup-<version>.exe` installer (or the portable exe) |
 | Client | Ubuntu, Linux Mint, Debian (amd64/arm64) | `linux-client/securespeak_3.0.0_amd64.deb`, or the portable binary + `install-client.sh` |
 | Server | Linux (amd64/arm64) | `linux-server/securespeak-server` + `install-server.sh` |
+
+## What's new in 3.9
+
+- **Screen shares open in their own window.** Clicking **LIVE** opens the stream in a separate window that you can resize or move to another monitor. It remembers its size and position, and closing it stops watching.
+- **Two other options**, set in *Settings → Appearance → Screen shares*:
+  - **Picture-in-picture:** a small window that stays on top of everything.
+  - **Inside the app:** the previous behavior.
+- **Switching while you watch:** buttons above the stream move it between window, picture-in-picture and the app. The stream keeps playing, and nothing is downloaded or decrypted twice.
 
 ## What's new in 3.8
 

@@ -371,14 +371,18 @@ const SS = {
     }
   },
 
+  // canvas / waitEl are set by the UI: the stream may be drawn inside the
+  // app, in a separate window or in a picture-in-picture window.
+  canvas: null,
+  waitEl: null,
+
   draw(frame) {
-    const c = document.getElementById('stage-canvas');
-    if (c) {
+    const c = this.canvas;
+    if (c && c.isConnected) {
       if (c.width !== frame.displayWidth || c.height !== frame.displayHeight) { c.width = frame.displayWidth; c.height = frame.displayHeight; }
       c.getContext('2d').drawImage(frame, 0, 0);
       this.frames++;
-      const ph = document.getElementById('stage-wait');
-      if (ph) ph.remove();
+      if (this.waitEl) { this.waitEl.remove(); this.waitEl = null; }
     }
     frame.close();
   },

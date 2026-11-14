@@ -97,6 +97,7 @@ type uiState struct {
 	Reconnecting    *uiReconnect        `json:"reconnecting"`
 	Share           ShareQuality        `json:"share"`
 	Theme           string              `json:"theme"`
+	StreamView      string              `json:"streamView"`
 	AutoReconnect   bool                `json:"autoReconnect"`
 	KeyProtected    bool                `json:"keyProtected"`
 	MaxClients      int                 `json:"maxClients"`
@@ -117,6 +118,7 @@ func (c *Client) stateLocked() uiState {
 		Reconnecting: c.reconnectStateLocked(), AutoReconnect: !c.cfg.NoAutoReconnect,
 		Share:        c.cfg.Share.clamp(),
 		Theme:        c.cfg.Theme,
+		StreamView:   c.cfg.StreamView,
 		KeyProtected: platform.ProtectsSecrets,
 		Channels:     []proto.ChannelInfo{}, Clients: []uiClient{},
 		Perms: []string{}, Roles: []proto.RoleInfo{}, PermCatalog: proto.PermCatalog,
@@ -437,6 +439,18 @@ func (c *Client) HandleCommand(cmd string, raw json.RawMessage) (any, error) {
 			s.send(proto.TWatch, proto.Watch{ID: a.id("id"), On: a.boolean("on"), Codecs: codecs})
 			return nil
 		})
+
+	case "stream_view":
+		mode := a.str("mode")
+		if mode != "window" && mode != "pip" && mode != "inline" {
+			return nil, errors.New("unknown stream view")
+		}
+		c.mu.Lock()
+		c.cfg.StreamView = mode
+		c.saveLocked()
+		c.mu.Unlock()
+		c.emitState()
+		return nil, nil
 
 	case "theme":
 		name := a.str("name")

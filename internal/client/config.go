@@ -79,6 +79,8 @@ type Config struct {
 
 	Share ShareQuality `json:"share"`           // screen share quality
 	Theme string       `json:"theme,omitempty"` // color theme (UI name)
+
+	StreamView string `json:"streamView,omitempty"` // where screen shares open: window, pip or inline
 }
 
 func defaultConfig() *Config {

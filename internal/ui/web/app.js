@@ -51,6 +51,9 @@ const P = {
   power: '<path d="M18.4 6.6a9 9 0 1 1-12.8 0M12 2v10"/>',
   check: '<path d="M20 6L9 17l-5-5"/>',
   arrowUp: '<path d="M12 19V5M5 12l7-7 7 7"/>',
+  popout: '<rect x="3" y="3" width="18" height="18" rx="2"/><path d="M14 3h7v7M21 3l-8 8"/>',
+  pip: '<rect x="2" y="4" width="20" height="16" rx="2"/><rect x="12" y="11" width="7" height="6" rx="1"/>',
+  popin: '<rect x="3" y="3" width="18" height="18" rx="2"/><path d="M10 14H4M10 14v6M10 14l-7 7"/>',
   external: '<path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6M15 3h6v6M10 14L21 3"/>',
   info: '<circle cx="12" cy="12" r="10"/><path d="M12 16v-4M12 8h.01"/>',
   tv: '<rect x="2" y="7" width="20" height="14" rx="2"/><path d="M17 2l-5 5-5-5M10 11v6l5-3z"/>',
@@ -1567,14 +1570,18 @@ function themePreview(t) {
 
 function renderAppearanceTab(view) {
   const cur = document.documentElement.dataset.theme || DEFAULT_THEME;
-  const pick = (id) => { applyTheme(id); act('theme', { name: id }); settingsView.refresh(); };
+  const pick = (id) => { applyTheme(id); if (SV.ext && !SV.ext.closed) syncStreamStyle(SV.ext.document); act('theme', { name: id }); settingsView.refresh(); };
   add(view,
     el('div', { class: 'section-title', style: 'margin-top:4px', text: 'Theme' }),
     el('div', { class: 'theme-grid' }, ...Object.entries(THEMES).map(([id, t]) => el('button', {
       type: 'button', class: 'theme-card' + (id === cur ? ' on' : ''), title: t.desc, onclick: () => pick(id),
     }, themePreview(t), el('div', { class: 'theme-name' }, el('span', { text: t.name }), id === cur && icon('check')),
       el('div', { class: 'hint', style: 'margin:0', text: t.desc + (t.scheme === 'light' ? ' · light' : '') })))),
-    el('div', { class: 'hint', text: 'The theme only changes how SecureSpeak looks on this computer.' }));
+    el('div', { class: 'hint', text: 'The theme only changes how SecureSpeak looks on this computer.' }),
+    el('div', { class: 'section-title', text: 'Screen shares' }),
+    el('div', { class: 'seg', style: 'display:inline-flex' }, ...[['window', 'Separate window'], ['pip', 'Picture-in-picture'], ['inline', 'Inside the app']].map(([k, l]) =>
+      el('button', { type: 'button', class: SV.pref() === k ? 'on' : '', onclick: () => act('stream_view', { mode: k }) }, l))),
+    el('div', { class: 'hint', text: 'Where a screen share opens when you click LIVE. A separate window can be moved to another monitor and remembers its size and position; picture-in-picture is a small window that stays on top of everything. You can switch while watching with the buttons above the stream.' }));
 }
 
 // ---------------------------------------------------------------- custom sounds
@@ -1695,6 +1702,7 @@ let closingShown = false;
 function onClosing(d) {
   if (closingShown) return;
   closingShown = true;
+  closeStreamWindow();
   document.body.append(el('div', { class: 'closing' },
     el('div', { class: 'closing-box' },
       el('img', { class: 'closing-icon', src: 'icon.png', alt: '' }),
@@ -2202,20 +2210,138 @@ async function startShare(q) {
   renderShareButton();
 }
 
-function watchUser(u) {
-  SS.watch(u.id);
+// ---- where a screen share is shown: a separate window (default),
+// picture-in-picture (always on top) or inside the app.
+const SV = {
+  mode: 'inline', // current surface
+  ext: null, // the separate / picture-in-picture window
+  closing: false, // we close ext ourselves (switching surfaces)
+  pref() { return (S && S.streamView) || 'window'; },
+};
+
+function streamGeometry() {
+  try { return JSON.parse(localStorage.getItem('ss-stream-geo') || 'null'); } catch (e) { return null; }
+}
+function saveStreamGeometry(w) {
+  try {
+    if (w.outerWidth > 200 && w.outerHeight > 150) localStorage.setItem('ss-stream-geo', JSON.stringify({ x: w.screenX, y: w.screenY, w: w.outerWidth, h: w.outerHeight }));
+  } catch (e) { /* storage unavailable */ }
+}
+
+// copy the stylesheet and theme into a new window's document
+function syncStreamStyle(doc) {
+  doc.documentElement.style.cssText = document.documentElement.style.cssText;
+  doc.documentElement.dataset.theme = document.documentElement.dataset.theme || '';
+}
+function prepareStreamDoc(doc, title) {
+  const link = doc.createElement('link');
+  link.rel = 'stylesheet';
+  link.href = new URL('app.css', location.href).href;
+  doc.head.replaceChildren(link);
+  doc.title = title; // after replacing the head (the title element lives there)
+  syncStreamStyle(doc);
+  doc.body.className = 'stream-doc';
+  const st = doc.createElement('div');
+  st.id = 'stage';
+  st.className = 'stage detached';
+  doc.body.replaceChildren(st);
+  doc.addEventListener('keydown', (e) => {
+    if (e.key === 'f' || e.key === 'F') { const c = doc.querySelector('canvas'); if (c && c.requestFullscreen) c.requestFullscreen(); }
+  });
+}
+
+function closeStreamWindow() {
+  const w = SV.ext;
+  SV.ext = null;
+  if (w && !w.closed) {
+    SV.closing = true;
+    if (SV.mode === 'window') saveStreamGeometry(w);
+    try { w.close(); } catch (e) { /* closed */ }
+    SV.closing = false;
+  }
+}
+
+// Shows the stream of user u on a surface. Must run directly from a click
+// (browsers only open windows in response to one).
+function showStream(u, mode) {
+  closeStreamWindow();
+  const title = u.nick + '’s screen — SecureSpeak';
+  const attach = (w) => {
+    SV.ext = w;
+    prepareStreamDoc(w.document, title);
+    w.addEventListener('pagehide', () => {
+      if (SV.ext !== w) return;
+      if (SV.mode === 'window') saveStreamGeometry(w);
+      SV.ext = null;
+      if (!SV.closing && SS.watching) { SS.unwatch(); } // the user closed the window: stop watching
+      renderStage();
+    });
+    w.addEventListener('resize', () => { if (SV.mode === 'window') saveStreamGeometry(w); });
+  };
+  if (mode === 'pip' && !window.documentPictureInPicture) {
+    toast('Picture-in-picture isn’t supported here; opening a separate window instead.', 'warn');
+    mode = 'window';
+  }
+  if (mode === 'window') {
+    const g = streamGeometry() || { w: 1280, h: 760, x: window.screenX + 60, y: window.screenY + 60 };
+    const w = window.open('', 'ss-stream', `popup=yes,width=${g.w},height=${g.h},left=${g.x},top=${g.y}`);
+    if (!w) {
+      toast('The stream window was blocked, so the stream opens inside the app.', 'warn');
+      mode = 'inline';
+    } else {
+      SV.mode = 'window';
+      attach(w);
+      try { if (g && streamGeometry()) w.resizeTo(g.w, g.h); } catch (e) { /* not allowed */ }
+      w.focus();
+    }
+  }
+  if (mode === 'pip') {
+    SV.mode = 'pip';
+    documentPictureInPicture.requestWindow({ width: 560, height: 350 }).then((w) => {
+      if (SS.watching !== u.id) { w.close(); return; }
+      attach(w);
+      $('stage').dataset.for = '';
+      renderStage();
+    }).catch(() => { SV.mode = 'inline'; $('stage').dataset.for = ''; renderStage(); });
+  }
+  if (mode === 'inline') SV.mode = 'inline';
+  $('stage').dataset.for = '';
   renderStage();
 }
 
+function watchUser(u) {
+  SS.watch(u.id); // sets SS.watching right away (the rest is async)
+  showStream(u, SV.pref()); // still inside the click: browsers only open windows then
+}
+
 function renderStage() {
-  const stage = $('stage');
+  const main = $('stage');
   const u = SS.watching && userById(SS.watching);
-  if (!u) { stage.classList.add('hidden'); stage.replaceChildren(); return; }
-  if (stage.dataset.for === String(u.id) && !stage.classList.contains('hidden')) return; // keep the canvas
-  stage.dataset.for = String(u.id);
+  if (!u) {
+    main.classList.add('hidden'); main.replaceChildren(); main.dataset.for = '';
+    if (SV.ext) closeStreamWindow();
+    SS.canvas = null;
+    return;
+  }
+  const ext = SV.ext && !SV.ext.closed ? SV.ext : null;
+  if (SV.mode === 'pip' && !ext) { main.classList.add('hidden'); return; } // waiting for the PiP window
+  const stage = ext ? ext.document.getElementById('stage') : main;
+  if (!stage) return;
+  if (ext) { main.classList.add('hidden'); main.replaceChildren(); main.dataset.for = ''; }
+  const key = u.id + '|' + SV.mode;
+  if (stage.dataset.for === key && (ext || !stage.classList.contains('hidden'))) return; // keep the canvas
+  stage.dataset.for = key;
   const canvas = el('canvas', { id: 'stage-canvas' });
-  const fs = el('button', { class: 'btn', onclick: () => canvas.requestFullscreen && canvas.requestFullscreen() }, icon('expand'), 'Fullscreen');
-  const close = el('button', { class: 'btn', onclick: () => { SS.unwatch(); renderStage(); } }, icon('x'), 'Stop watching');
+  const wait = el('div', { id: 'stage-wait', class: 'hint', text: 'Connecting to the screen share…' });
+  SS.canvas = canvas;
+  SS.waitEl = SS.frames > 0 ? null : wait;
+  const fs = el('button', { class: 'btn', title: 'Fullscreen (F)', onclick: () => canvas.requestFullscreen && canvas.requestFullscreen() }, icon('expand'), SV.mode === 'pip' ? '' : 'Fullscreen');
+  const surfaces = [
+    SV.mode !== 'window' && el('button', { class: 'btn', title: 'Open in a separate window', onclick: () => showStream(u, 'window') }, icon('popout'), SV.mode === 'pip' ? '' : 'Window'),
+    SV.mode !== 'pip' && window.documentPictureInPicture && el('button', { class: 'btn', title: 'Picture-in-picture: a small window that stays on top', onclick: () => showStream(u, 'pip') }, icon('pip'), SV.mode === 'pip' ? '' : 'Picture-in-picture'),
+    SV.mode !== 'inline' && el('button', { class: 'btn', title: 'Show inside the SecureSpeak window', onclick: () => { const w = SV.ext; showStream(u, 'inline'); window.focus(); if (w && !w.closed) w.close(); } }, icon('popin'), SV.mode === 'pip' ? '' : 'Back into app'),
+  ];
+  const close = el('button', { class: 'btn', title: 'Stop watching', onclick: () => { SS.unwatch(); renderStage(); } }, icon('x'), SV.mode === 'pip' ? '' : 'Stop watching');
   const volVal = el('span', { class: 'val', text: Math.round(SS.shareVolume * 100) + '%' });
   const vol = el('input', { type: 'range', min: 0, max: 200, step: 5, value: Math.round(SS.shareVolume * 100), title: 'Volume of the shared sound' });
   vol.oninput = () => { SS.shareVolume = vol.value / 100; volVal.textContent = vol.value + '%'; SS.applyShareVolume(); };
@@ -2223,11 +2349,13 @@ function renderStage() {
   mute.onclick = () => { SS.shareMuted = !SS.shareMuted; mute.replaceChildren(icon(SS.shareMuted ? 'volX' : 'vol')); SS.applyShareVolume(); };
   const audioCtl = el('span', { class: 'stage-audio' }, mute, vol, volVal);
   stage.replaceChildren(
-    el('div', { class: 'stage-bar' }, el('span', { class: 'badge live', text: 'LIVE' }), el('span', { class: 'stage-title', text: u.nick + '’s screen' }),
-      el('span', { class: 'hint', style: 'margin:0', text: 'end-to-end encrypted' }), el('span', { class: 'spacer' }), audioCtl, fs, close),
-    el('div', { class: 'stage-view' }, canvas, el('div', { id: 'stage-wait', class: 'hint', text: 'Connecting to the screen share…' })));
+    el('div', { class: 'stage-bar' + (SV.mode === 'pip' ? ' compact' : '') }, el('span', { class: 'badge live', text: 'LIVE' }), el('span', { class: 'stage-title', text: u.nick + '’s screen' }),
+      SV.mode !== 'pip' && el('span', { class: 'hint', style: 'margin:0', text: 'end-to-end encrypted' }), el('span', { class: 'spacer' }), audioCtl, ...surfaces, fs, close),
+    el('div', { class: 'stage-view' }, canvas, SS.waitEl));
   stage.classList.remove('hidden');
 }
+
+window.addEventListener('pagehide', () => closeStreamWindow());
 
 SS.onChange = () => { renderShareButton(); renderStage(); renderTree(); };
 
