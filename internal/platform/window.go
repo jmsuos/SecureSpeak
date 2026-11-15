@@ -19,6 +19,13 @@ func setAppBrowser(exe, profile string, firefox bool) {
 	winMu.Unlock()
 }
 
+// AppBrowser returns the browser used for the app window ("" = none).
+func AppBrowser() string {
+	winMu.Lock()
+	defer winMu.Unlock()
+	return appExe
+}
+
 // OpenInAppBrowser opens a web page in the browser profile of the app window,
 // so a sign-in there (e.g. YouTube Premium) also applies inside SecureSpeak.
 // Without an app window it falls back to the default browser.

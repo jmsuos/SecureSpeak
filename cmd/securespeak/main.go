@@ -177,6 +177,8 @@ func main() {
 		windowClosed, err = platform.OpenWindow(uiURL, profileDir)
 		if err != nil {
 			log.Printf("window: %v", err)
+		} else {
+			log.Printf("app window opened with %s", platform.AppBrowser())
 		}
 	}
 	// Some launchers (e.g. a browser that hands the window to an already

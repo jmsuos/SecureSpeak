@@ -101,8 +101,8 @@ jobs:
           go-version-file: go.mod
           cache: false # no third-party modules, nothing to cache
 
-      - name: Updater tests on Windows (swapping a running exe)
-        run: go test -count=1 ./internal/update/
+      - name: Updater and platform tests on Windows
+        run: go test -count=1 -v ./internal/update/ ./internal/platform/
 
       - name: Embed icon, version info and manifest
         run: |
