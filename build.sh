@@ -26,7 +26,7 @@ cp deploy/linux/securespeak.desktop deploy/linux/securespeak.png deploy/linux/in
 # Linux server
 GOOS=linux GOARCH=amd64 go build -trimpath -ldflags "-s -w" -o dist/linux-server/securespeak-server ./cmd/securespeak-server
 GOOS=linux GOARCH=arm64 go build -trimpath -ldflags "-s -w" -o dist/linux-server/securespeak-server-arm64 ./cmd/securespeak-server
-cp deploy/securespeak.service deploy/install-server.sh LICENSE dist/linux-server/
+cp deploy/securespeak.service deploy/install-server.sh deploy/update-server.sh LICENSE dist/linux-server/
 
 # .deb packages for Ubuntu / Linux Mint / Debian
 if command -v dpkg-deb >/dev/null; then

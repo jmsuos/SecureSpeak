@@ -9,6 +9,8 @@ case "$(uname -m)" in
 esac
 
 install -m 0755 "$BIN" /usr/local/bin/securespeak-server
+# updater (checks the release signature): securespeak-update [VERSION]; also used by the release pipeline
+[ -f update-server.sh ] && install -m 0755 update-server.sh /usr/local/sbin/securespeak-update
 id securespeak >/dev/null 2>&1 || useradd --system --home /var/lib/securespeak --shell /usr/sbin/nologin securespeak
 install -d -o securespeak -g securespeak -m 0700 /var/lib/securespeak
 
@@ -38,3 +40,4 @@ case "$TOKEN" in
         echo ;;
 esac
 echo "SecureSpeak is running. Logs: journalctl -u securespeak -f"
+echo "Update later with: sudo securespeak-update"
