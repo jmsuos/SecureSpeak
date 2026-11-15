@@ -224,6 +224,11 @@ jobs:
   release:
     needs: [version, linux, windows]
     runs-on: ubuntu-latest
+    # A release created on github.com starts two runs (tag push + release
+    # published). They wait for each other here, and only the first publishes.
+    concurrency:
+      group: release-${{ github.ref }}
+      cancel-in-progress: false
     steps:
       - uses: actions/checkout@v6
       - uses: actions/download-artifact@v7
@@ -273,8 +278,75 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
+            if gh release view "$GITHUB_REF_NAME" --json assets --jq '.assets[].name' | grep -qx SHA256SUMS; then
+              # the other run (tag push vs. release published) already attached the files;
+              # replacing them would mix files from two different builds
+              echo "::notice title=Already published::$GITHUB_REF_NAME already has its files; nothing to do."
+              exit 0
+            fi
             # release created on github.com: attach the files to it
             gh release upload "$GITHUB_REF_NAME" release/* --clobber
           else
             gh release create "$GITHUB_REF_NAME" release/* --title "SecureSpeak ${{ needs.version.outputs.version }}" --generate-notes
           fi
+
+  # Updates the SecureSpeak server through AWS Systems Manager once a release
+  # is published. Needs the repository variables AWS_DEPLOY_ROLE_ARN,
+  # AWS_REGION and AWS_INSTANCE_ID (see deploy/aws/securespeak-deploy.yaml);
+  # without them this job does nothing. GitHub signs in to AWS with OIDC: no
+  # AWS keys are stored, and the role only works for release tags.
+  deploy:
+    needs: [version, release]
+    if: startsWith(github.ref, 'refs/tags/v') && vars.AWS_DEPLOY_ROLE_ARN != ''
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      contents: read
+    concurrency:
+      group: deploy-server
+      cancel-in-progress: false
+    env:
+      AWS_REGION: ${{ vars.AWS_REGION }}
+      AWS_DEFAULT_REGION: ${{ vars.AWS_REGION }}
+      ROLE_ARN: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
+      INSTANCE_ID: ${{ vars.AWS_INSTANCE_ID }}
+      VERSION: ${{ needs.version.outputs.version }}
+    steps:
+      - name: Sign in to AWS (OIDC, no stored keys)
+        run: |
+          set -eu
+          case "$VERSION" in *[!0-9.]*|"") echo "::error::not a release version: $VERSION"; exit 1 ;; esac
+          token=$(curl -fsS -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
+            "$ACTIONS_ID_TOKEN_REQUEST_URL&audience=sts.amazonaws.com" | jq -r .value)
+          creds=$(aws sts assume-role-with-web-identity --role-arn "$ROLE_ARN" \
+            --role-session-name "securespeak-deploy-$GITHUB_RUN_ID" --web-identity-token "$token" \
+            --duration-seconds 900 --query Credentials --output json)
+          for k in AccessKeyId SecretAccessKey SessionToken; do
+            v=$(echo "$creds" | jq -r ".$k"); echo "::add-mask::$v"
+          done
+          {
+            echo "AWS_ACCESS_KEY_ID=$(echo "$creds" | jq -r .AccessKeyId)"
+            echo "AWS_SECRET_ACCESS_KEY=$(echo "$creds" | jq -r .SecretAccessKey)"
+            echo "AWS_SESSION_TOKEN=$(echo "$creds" | jq -r .SessionToken)"
+          } >> "$GITHUB_ENV"
+      - name: Update the server to ${{ needs.version.outputs.version }}
+        run: |
+          set -eu
+          id=$(aws ssm send-command --document-name SecureSpeak-Update --instance-ids "$INSTANCE_ID" \
+            --parameters "version=$VERSION" --comment "SecureSpeak $VERSION (GitHub run $GITHUB_RUN_ID)" \
+            --timeout-seconds 600 --query Command.CommandId --output text)
+          echo "SSM command $id"
+          status=Pending
+          for i in $(seq 1 120); do
+            sleep 5
+            status=$(aws ssm get-command-invocation --command-id "$id" --instance-id "$INSTANCE_ID" \
+              --query Status --output text 2>/dev/null || echo Pending)
+            case "$status" in Pending|InProgress|Delayed) continue ;; *) break ;; esac
+          done
+          aws ssm get-command-invocation --command-id "$id" --instance-id "$INSTANCE_ID" \
+            --query '[StandardOutputContent, StandardErrorContent]' --output text || true
+          if [ "$status" != Success ]; then
+            echo "::error title=Server update failed::SSM status: $status"
+            exit 1
+          fi
+          echo "::notice title=Server updated::SecureSpeak server is on $VERSION"
