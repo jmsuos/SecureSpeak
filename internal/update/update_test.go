@@ -567,6 +567,9 @@ func macBundle(t *testing.T) (exe string) {
 }
 
 func TestMacAppUpdate(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("app bundles are a macOS thing (paths here use backslashes)")
+	}
 	good := zipOf(t, []zipEntry{
 		{"SecureSpeak.app/", os.ModeDir | 0755, ""},
 		{"SecureSpeak.app/Contents/Info.plist", 0644, "new plist"},
@@ -611,6 +614,9 @@ func TestMacAppUpdate(t *testing.T) {
 }
 
 func TestMacAppRejectsBadZips(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("app bundles are a macOS thing (paths here use backslashes)")
+	}
 	for name, z := range map[string][]zipEntry{
 		"path traversal":  {{"SecureSpeak.app/../../evil", 0755, "x"}},
 		"outside the app": {{"evil.sh", 0755, "x"}},
