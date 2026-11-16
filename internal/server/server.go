@@ -1113,7 +1113,7 @@ func (s *Server) chanEdit(c *Client, ce proto.ChanEdit) {
 			ch.Owner = 0
 		} else if ch.Icon != "" { // icons are for permanent channels only
 			ch.Icon = ""
-			defer s.gcIconsLocked()
+			s.gcIconsLocked() // before the update is broadcast below
 		}
 		ch.Order = ce.Order
 		if ce.Default && ch.Permanent && !ch.Default {
