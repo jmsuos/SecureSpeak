@@ -868,6 +868,10 @@ func (c *Client) handleMsg(s *session, m proto.Message) {
 	case proto.TError:
 		stateChanged = false
 		if e, ok := unmarshal[proto.Error](m); ok {
+			if e.Code == "rickroll" { // tried to ban the owner
+				c.em.Emit("rickroll", map[string]any{"msg": e.Msg})
+				break
+			}
 			c.em.Emit("error", e)
 			sound = "error"
 		}
@@ -875,6 +879,9 @@ func (c *Client) handleMsg(s *session, m proto.Message) {
 		stateChanged = false
 		if n, ok := unmarshal[proto.Notice](m); ok {
 			c.system(n.Msg)
+			if n.Kind != "" {
+				c.em.Emit("notice", n)
+			}
 		}
 	case proto.TLogs:
 		stateChanged = false
