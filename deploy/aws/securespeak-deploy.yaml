@@ -1,0 +1,142 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: >-
+  Lets the SecureSpeak GitHub release workflow update one SecureSpeak server
+  through AWS Systems Manager. GitHub signs in with OIDC (no stored AWS keys),
+  only for release tags of the repository, and may only run the
+  SecureSpeak-Update command (securespeak-update VERSION) on this instance.
+
+Parameters:
+  InstanceId:
+    Type: AWS::EC2::Instance::Id
+    Description: The EC2 instance that runs the SecureSpeak server.
+  GitHubRepository:
+    Type: String
+    Default: jmsuos/SecureSpeak
+    AllowedPattern: "^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$"
+    Description: owner/name of the GitHub repository allowed to deploy.
+  CreateGitHubOIDCProvider:
+    Type: String
+    Default: "true"
+    AllowedValues: ["true", "false"]
+    Description: >-
+      "true" creates the GitHub OIDC identity provider in this account. Choose
+      "false" if token.actions.githubusercontent.com already exists under
+      IAM > Identity providers.
+  CreateInstanceRole:
+    Type: String
+    Default: "true"
+    AllowedValues: ["true", "false"]
+    Description: >-
+      "true" creates an instance profile with AmazonSSMManagedInstanceCore to
+      attach to the server (only if the instance has no IAM role yet; otherwise
+      add that managed policy to its existing role).
+
+Conditions:
+  MakeOIDC: !Equals [!Ref CreateGitHubOIDCProvider, "true"]
+  MakeInstanceRole: !Equals [!Ref CreateInstanceRole, "true"]
+
+Resources:
+  GitHubOIDCProvider:
+    Type: AWS::IAM::OIDCProvider
+    Condition: MakeOIDC
+    Properties:
+      Url: https://token.actions.githubusercontent.com
+      ClientIdList: [sts.amazonaws.com]
+      ThumbprintList:
+        - 6938fd4d98bab03faadb97b34396831e3780aea1
+        - 1c58a3a8518e8759bf075b76b750d4f2df264fcd
+
+  UpdateDocument:
+    Type: AWS::SSM::Document
+    Properties:
+      Name: SecureSpeak-Update
+      DocumentType: Command
+      Content:
+        schemaVersion: "2.2"
+        description: Update the SecureSpeak server to a signed release.
+        parameters:
+          version:
+            type: String
+            description: Release version, e.g. 3.10.1
+            allowedPattern: "^[0-9]+\\.[0-9]+\\.[0-9]+$"
+        mainSteps:
+          - action: aws:runShellScript
+            name: update
+            inputs:
+              timeoutSeconds: "600"
+              runCommand:
+                - "/usr/local/sbin/securespeak-update {{ version }}"
+
+  DeployRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: SecureSpeak-GitHub-Deploy
+      Description: Assumed by the SecureSpeak GitHub release workflow to update the server.
+      MaxSessionDuration: 3600
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Federated: !Sub arn:${AWS::Partition}:iam::${AWS::AccountId}:oidc-provider/token.actions.githubusercontent.com
+            Action: sts:AssumeRoleWithWebIdentity
+            Condition:
+              StringEquals:
+                token.actions.githubusercontent.com:aud: sts.amazonaws.com
+              StringLike:
+                # only runs for release tags (v1.2.3) of this repository;
+                # pull requests and branches cannot assume this role
+                token.actions.githubusercontent.com:sub: !Sub repo:${GitHubRepository}:ref:refs/tags/v*
+      Policies:
+        - PolicyName: SendSecureSpeakUpdate
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Sid: RunOnlyTheUpdateCommandOnThisServer
+                Effect: Allow
+                Action: ssm:SendCommand
+                Resource:
+                  - !Sub arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:document/${UpdateDocument}
+                  - !Sub arn:${AWS::Partition}:ec2:${AWS::Region}:${AWS::AccountId}:instance/${InstanceId}
+              - Sid: ReadTheResult
+                Effect: Allow
+                Action:
+                  - ssm:GetCommandInvocation
+                  - ssm:ListCommandInvocations
+                Resource: "*"
+
+  InstanceRole:
+    Type: AWS::IAM::Role
+    Condition: MakeInstanceRole
+    Properties:
+      RoleName: SecureSpeak-Server-SSM
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal: { Service: ec2.amazonaws.com }
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - !Sub arn:${AWS::Partition}:iam::aws:policy/AmazonSSMManagedInstanceCore
+
+  InstanceProfile:
+    Type: AWS::IAM::InstanceProfile
+    Condition: MakeInstanceRole
+    Properties:
+      InstanceProfileName: SecureSpeak-Server-SSM
+      Roles: [!Ref InstanceRole]
+
+Outputs:
+  DeployRoleArn:
+    Description: Put this in the GitHub repository variable AWS_DEPLOY_ROLE_ARN.
+    Value: !GetAtt DeployRole.Arn
+  Region:
+    Description: Put this in the GitHub repository variable AWS_REGION.
+    Value: !Ref AWS::Region
+  InstanceId:
+    Description: Put this in the GitHub repository variable AWS_INSTANCE_ID.
+    Value: !Ref InstanceId
+  InstanceProfile:
+    Condition: MakeInstanceRole
+    Description: Attach this to the instance (EC2 > Instance > Actions > Security > Modify IAM role).
+    Value: !Ref InstanceProfile

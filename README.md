@@ -317,6 +317,32 @@ internal/ui              local bridge (HTTP, SSE, WebSocket) + web UI, audio eng
 - Not built yet: a server-side channel file browser, recording, a tray icon and
   a macOS client.
 
+## Automatic server updates from GitHub
+
+When a release is published, the build can update your server through **AWS Systems Manager**, without SSH, open ports or stored AWS keys.
+- **Signing in:** GitHub signs in to AWS with OIDC, and only for release tags of this repository.
+- **What it may do:** run one fixed command on one server, `securespeak-update VERSION`.
+- **Checks on the server:** the release signature and checksums, so it never installs anything unsigned and never downgrades.
+
+One-time setup:
+
+1. **On the server**, install the updater and record the version you're on now:
+   ```sh
+   curl -fsSL https://raw.githubusercontent.com/jmsuos/SecureSpeak/main/deploy/update-server.sh | sudo install -m 0755 /dev/stdin /usr/local/sbin/securespeak-update
+   echo 3.10.1 | sudo tee /var/lib/securespeak/.installed-version   # the version that is running now
+   ```
+   New installs with `install-server.sh` include the updater already. You can also run it by hand: `sudo securespeak-update`.
+2. **In AWS:** create a CloudFormation stack from [`deploy/aws/securespeak-deploy.yaml`](deploy/aws/securespeak-deploy.yaml) in the server's region, choosing your instance.
+   - **What it creates:** the GitHub sign-in provider, a deploy role limited to this repository's release tags, the `SecureSpeak-Update` command and, optionally, an instance role for Systems Manager.
+   - **Instance role:** if the server has no IAM role yet, attach the created `SecureSpeak-Server-SSM` profile (*EC2 → the instance → Actions → Security → Modify IAM role*). If it has one, add `AmazonSSMManagedInstanceCore` to it.
+   - **Check:** the server shows as *Online* under *Systems Manager → Fleet Manager*. Ubuntu on AWS has the SSM agent preinstalled.
+3. **In GitHub:** go to *Settings → Secrets and variables → Actions → Variables* and add the stack outputs:
+   - `AWS_DEPLOY_ROLE_ARN`
+   - `AWS_REGION`
+   - `AWS_INSTANCE_ID`
+
+From then on, every published release ends with a **deploy** job that updates the server and shows its output. People on the server are disconnected for a moment, and their apps reconnect automatically. Without the variables, the deploy job is skipped.
+
 ## Release signing
 
 Updates are only installed when `SHA256SUMS` carries a valid signature by a
