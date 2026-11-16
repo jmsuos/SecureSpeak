@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>CFBundleName</key><string>SecureSpeak</string>
+	<key>CFBundleDisplayName</key><string>SecureSpeak</string>
+	<key>CFBundleIdentifier</key><string>io.github.jmsuos.securespeak</string>
+	<key>CFBundleExecutable</key><string>SecureSpeak</string>
+	<key>CFBundleIconFile</key><string>SecureSpeak</string>
+	<key>CFBundlePackageType</key><string>APPL</string>
+	<key>CFBundleShortVersionString</key><string>@VERSION@</string>
+	<key>CFBundleVersion</key><string>@VERSION_NUM@</string>
+	<key>LSMinimumSystemVersion</key><string>11.0</string>
+	<key>LSApplicationCategoryType</key><string>public.app-category.social-networking</string>
+	<!-- The window is a browser app window; SecureSpeak itself runs without
+	     a Dock icon or menu bar of its own (otherwise it would bounce forever). -->
+	<key>LSUIElement</key><true/>
+	<key>NSHumanReadableCopyright</key><string>Copyright © 2026 jmsuos and SecureSpeak contributors. GPL-3.0.</string>
+</dict>
+</plist>

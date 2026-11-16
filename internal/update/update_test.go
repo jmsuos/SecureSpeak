@@ -2,6 +2,7 @@ package update
 
 import (
 	"archive/tar"
+	"archive/zip"
 	"bytes"
 	"compress/gzip"
 	"crypto/ed25519"
@@ -531,5 +532,103 @@ func TestOpenSSLSignatureFormat(t *testing.T) {
 	}
 	if err := VerifySums(append(b, 'x'), []byte(base64.StdEncoding.EncodeToString(sig)), keys); err == nil {
 		t.Fatal("modified SHA256SUMS accepted")
+	}
+}
+
+func zipOf(t *testing.T, entries []zipEntry) []byte {
+	var buf bytes.Buffer
+	zw := zip.NewWriter(&buf)
+	for _, e := range entries {
+		h := &zip.FileHeader{Name: e.name, Method: zip.Deflate}
+		h.SetMode(e.mode)
+		w, err := zw.CreateHeader(h)
+		if err != nil {
+			t.Fatal(err)
+		}
+		w.Write([]byte(e.data))
+	}
+	zw.Close()
+	return buf.Bytes()
+}
+
+type zipEntry struct {
+	name string
+	mode os.FileMode
+	data string
+}
+
+func macBundle(t *testing.T) (exe string) {
+	apps := filepath.Join(t.TempDir(), "Applications")
+	exe = filepath.Join(apps, "SecureSpeak.app", "Contents", "MacOS", "SecureSpeak")
+	os.MkdirAll(filepath.Dir(exe), 0755)
+	os.WriteFile(exe, []byte("OLD BINARY"), 0755)
+	os.WriteFile(filepath.Join(apps, "SecureSpeak.app", "Contents", "Info.plist"), []byte("old plist"), 0644)
+	return exe
+}
+
+func TestMacAppUpdate(t *testing.T) {
+	good := zipOf(t, []zipEntry{
+		{"SecureSpeak.app/", os.ModeDir | 0755, ""},
+		{"SecureSpeak.app/Contents/Info.plist", 0644, "new plist"},
+		{"SecureSpeak.app/Contents/MacOS/SecureSpeak", 0755, "NEW UNIVERSAL BINARY"},
+		{"SecureSpeak.app/Contents/Resources/SecureSpeak.icns", 0644, "icon"},
+		{"__MACOSX/._SecureSpeak.app", 0644, "resource fork"},
+	})
+	gh := newFakeGH(t, "v3.11.0", map[string][]byte{"SecureSpeak-3.11.0-macos.zip": good})
+	u := testUpdater(t, gh, MacApp, "x")
+	u.Exe = macBundle(t)
+	bundle := appBundle(u.Exe)
+	if !strings.HasSuffix(bundle, "/Applications/SecureSpeak.app") {
+		t.Fatalf("appBundle = %q", bundle)
+	}
+	r, err := u.Latest(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	p, err := u.Prepare(t.Context(), r, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if p.file != bundle {
+		t.Fatalf("pending file %q", p.file)
+	}
+	if b, _ := os.ReadFile(u.Exe); string(b) != "NEW UNIVERSAL BINARY" {
+		t.Fatalf("binary now %q", b)
+	}
+	if fi, _ := os.Stat(u.Exe); fi.Mode()&0100 == 0 {
+		t.Fatal("binary lost its executable bit")
+	}
+	if b, _ := os.ReadFile(filepath.Join(bundle+".old", "Contents", "MacOS", "SecureSpeak")); string(b) != "OLD BINARY" {
+		t.Fatal("old bundle not kept aside")
+	}
+	if left, _ := filepath.Glob(filepath.Join(filepath.Dir(bundle), ".securespeak-update-*")); len(left) > 0 {
+		t.Fatalf("temporary folder left: %v", left)
+	}
+	u.Cleanup()
+	if _, err := os.Stat(bundle + ".old"); !os.IsNotExist(err) {
+		t.Fatal("old bundle not cleaned up")
+	}
+}
+
+func TestMacAppRejectsBadZips(t *testing.T) {
+	for name, z := range map[string][]zipEntry{
+		"path traversal":  {{"SecureSpeak.app/../../evil", 0755, "x"}},
+		"outside the app": {{"evil.sh", 0755, "x"}},
+		"two apps":        {{"SecureSpeak.app/Contents/MacOS/SecureSpeak", 0755, "x"}, {"Other.app/Contents/MacOS/x", 0755, "x"}},
+		"symlink":         {{"SecureSpeak.app/Contents/MacOS/SecureSpeak", os.ModeSymlink | 0777, "/bin/sh"}},
+		"no executable":   {{"SecureSpeak.app/Contents/Info.plist", 0644, "x"}},
+		"absolute":        {{"/SecureSpeak.app/Contents/MacOS/SecureSpeak", 0755, "x"}},
+	} {
+		t.Run(name, func(t *testing.T) {
+			exe := macBundle(t)
+			zf := filepath.Join(t.TempDir(), "u.zip")
+			os.WriteFile(zf, zipOf(t, z), 0644)
+			if err := swapBundle(appBundle(exe), zf); err == nil {
+				t.Fatal("accepted")
+			}
+			if b, _ := os.ReadFile(exe); string(b) != "OLD BINARY" {
+				t.Fatal("bundle changed by a bad update")
+			}
+		})
 	}
 }

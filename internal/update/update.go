@@ -15,6 +15,7 @@ package update
 
 import (
 	"archive/tar"
+	"archive/zip"
 	"bufio"
 	"compress/gzip"
 	"context"
@@ -53,6 +54,7 @@ const (
 	WinPortable              // stand-alone SecureSpeak.exe
 	LinuxDeb                 // .deb package in /usr/bin
 	LinuxBinary              // binary in a user-writable folder
+	MacApp                   // SecureSpeak.app in a writable folder (e.g. /Applications)
 )
 
 func (k Kind) String() string {
@@ -65,6 +67,8 @@ func (k Kind) String() string {
 		return "deb"
 	case LinuxBinary:
 		return "binary"
+	case MacApp:
+		return "app"
 	}
 	return "manual"
 }
@@ -122,6 +126,9 @@ func New(current, workDir string) *Updater {
 // Cleanup removes leftovers of a previous update (old exe, downloads).
 func (u *Updater) Cleanup() {
 	os.Remove(u.Exe + ".old")
+	if b := appBundle(u.Exe); b != "" {
+		os.RemoveAll(b + ".old")
+	}
 	os.RemoveAll(u.WorkDir)
 }
 
@@ -189,6 +196,8 @@ func (u *Updater) assetName(v string) string {
 		return "securespeak_" + v + "_" + u.Arch + ".deb"
 	case LinuxBinary:
 		return "securespeak-client-" + v + "-linux.tar.gz"
+	case MacApp:
+		return "SecureSpeak-" + v + "-macos.zip"
 	}
 	return ""
 }
@@ -271,8 +280,121 @@ func (u *Updater) Prepare(ctx context.Context, r *Release, progress func(done, t
 			return nil, err
 		}
 		p.file = u.Exe
+	case MacApp:
+		bundle := appBundle(u.Exe)
+		if err := swapBundle(bundle, file); err != nil {
+			return nil, err
+		}
+		p.file = bundle
 	}
 	return p, nil
+}
+
+// appBundle returns the .app folder the executable runs from, or "".
+func appBundle(exe string) string {
+	i := strings.LastIndex(exe, ".app/Contents/MacOS/")
+	if i < 0 {
+		return ""
+	}
+	return exe[:i+4]
+}
+
+// swapBundle replaces a .app bundle with the one in a zip
+// (SecureSpeak.app/...). The running program keeps running from the old
+// bundle, which is moved aside to <bundle>.old and removed on next start.
+func swapBundle(bundle, zipFile string) error {
+	parent := filepath.Dir(bundle)
+	tmp, err := os.MkdirTemp(parent, ".securespeak-update-")
+	if err != nil {
+		return fmt.Errorf("cannot write to %s: %w", parent, err)
+	}
+	defer os.RemoveAll(tmp)
+	newApp, err := unzipApp(zipFile, tmp)
+	if err != nil {
+		return err
+	}
+	if fi, err := os.Stat(filepath.Join(newApp, "Contents", "MacOS")); err != nil || !fi.IsDir() {
+		return errors.New("the download does not contain a SecureSpeak app")
+	}
+	old := bundle + ".old"
+	os.RemoveAll(old)
+	if err := os.Rename(bundle, old); err != nil {
+		return err
+	}
+	if err := os.Rename(newApp, bundle); err != nil {
+		os.Rename(old, bundle)
+		return err
+	}
+	return nil
+}
+
+// unzipApp extracts the single top-level *.app folder of a zip into dir and
+// returns its path. Paths outside that folder, links and other oddities are
+// refused.
+func unzipApp(zipFile, dir string) (string, error) {
+	zr, err := zip.OpenReader(zipFile)
+	if err != nil {
+		return "", err
+	}
+	defer zr.Close()
+	top := ""
+	var total int64
+	for _, f := range zr.File {
+		name := strings.TrimPrefix(f.Name, "./")
+		first, _, _ := strings.Cut(name, "/")
+		if !strings.HasSuffix(first, ".app") || strings.Contains(name, "..") || strings.HasPrefix(name, "/") || strings.Contains(name, "\\") {
+			if strings.HasPrefix(name, "__MACOSX/") {
+				continue // resource forks added by some zip tools
+			}
+			return "", fmt.Errorf("unexpected file in update: %q", f.Name)
+		}
+		if top == "" {
+			top = first
+		} else if first != top {
+			return "", errors.New("the update contains more than one app")
+		}
+		mode := f.Mode()
+		dst := filepath.Join(dir, filepath.FromSlash(name))
+		switch {
+		case mode.IsDir():
+			if err := os.MkdirAll(dst, 0755); err != nil {
+				return "", err
+			}
+			continue
+		case !mode.IsRegular():
+			return "", fmt.Errorf("unexpected entry type in update: %q", f.Name)
+		}
+		total += int64(f.UncompressedSize64)
+		if total > maxDownload {
+			return "", errors.New("the update is unexpectedly large")
+		}
+		if err := os.MkdirAll(filepath.Dir(dst), 0755); err != nil {
+			return "", err
+		}
+		rc, err := f.Open()
+		if err != nil {
+			return "", err
+		}
+		perm := os.FileMode(0644)
+		if mode&0111 != 0 {
+			perm = 0755
+		}
+		out, err := os.OpenFile(dst, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, perm)
+		if err == nil {
+			_, err = io.Copy(out, io.LimitReader(rc, maxDownload))
+			if cerr := out.Close(); err == nil {
+				err = cerr
+			}
+		}
+		rc.Close()
+		if err != nil {
+			return "", err
+		}
+	}
+	if top == "" {
+		return "", errors.New("the update is empty")
+	}
+	return filepath.Join(dir, top), nil
 }
 
 func (u *Updater) fetchSmall(ctx context.Context, a *Asset) ([]byte, error) {
@@ -498,6 +620,12 @@ func (p *Pending) Finish(args []string) error {
 	if p.kind == WinInstaller {
 		// /UPDATE=1 makes the setup start SecureSpeak again when it is done.
 		cmd := exec.Command(p.file, "/SILENT", "/SUPPRESSMSGBOXES", "/NORESTART", "/SP-", "/UPDATE=1")
+		detach(cmd)
+		return cmd.Start()
+	}
+	if p.kind == MacApp {
+		// start the new bundle through Launch Services, like a double-click
+		cmd := exec.Command("open", append([]string{"-n", p.file, "--args", "-after-update"}, args...)...)
 		detach(cmd)
 		return cmd.Start()
 	}

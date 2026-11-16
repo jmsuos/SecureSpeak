@@ -220,9 +220,59 @@ jobs:
             dist/windows/SecureSpeak.exe
           if-no-files-found: error
 
+  macos:
+    needs: [version, test]
+    runs-on: macos-latest
+    env:
+      VERSION: ${{ needs.version.outputs.version }}
+      VERSION_NUM: ${{ needs.version.outputs.numeric }}
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache: false # no third-party modules, nothing to cache
+      - name: Vet and test on macOS
+        env:
+          CGO_ENABLED: '1'
+        run: |
+          go vet ./...
+          go test -count=1 ./...
+      - name: Build SecureSpeak.app, .dmg and update .zip
+        run: installer/macos/build-app.sh
+      - name: Smoke-test the app
+        run: |
+          app=dist/macos/SecureSpeak.app/Contents/MacOS/SecureSpeak
+          "$app" -version
+          data=$(mktemp -d)
+          "$app" -no-window -data "$data" > "$RUNNER_TEMP/app.out" 2>&1 &
+          pid=$!
+          url=""
+          for i in $(seq 1 40); do
+            sleep 0.5
+            url=$(grep -Eo 'http://127\.0\.0\.1:[0-9]+/\?token=[A-Za-z0-9_-]+' "$RUNNER_TEMP/app.out" | head -1 || true)
+            [ -n "$url" ] && break
+          done
+          [ -n "$url" ] || { cat "$RUNNER_TEMP/app.out"; echo "::error::the app did not start its UI"; exit 1; }
+          curl -fsS "$url" | grep -q SecureSpeak || { echo "::error::UI not served"; exit 1; }
+          kill $pid
+          # the .dmg mounts and contains the app
+          mnt=$(hdiutil attach -nobrowse -readonly dist/macos/SecureSpeak-*-macos.dmg | grep -Eo '/Volumes/.*$')
+          test -x "$mnt/SecureSpeak.app/Contents/MacOS/SecureSpeak"
+          test -L "$mnt/Applications"
+          hdiutil detach "$mnt" >/dev/null
+          echo "::notice title=macOS app::$(lipo -archs dist/macos/SecureSpeak.app/Contents/MacOS/SecureSpeak) — starts, serves its UI, dmg OK"
+      - uses: actions/upload-artifact@v6
+        with:
+          name: macos
+          path: |
+            dist/macos/SecureSpeak-*-macos.zip
+            dist/macos/SecureSpeak-*-macos.dmg
+          if-no-files-found: error
+
   # Runs on every build as a dry run (collect + sign + verify); only tags publish.
   release:
-    needs: [version, linux, windows]
+    needs: [version, linux, windows, macos]
     runs-on: ubuntu-latest
     # A release created on github.com starts two runs (tag push + release
     # published). They wait for each other here, and only the first publishes.
@@ -240,6 +290,7 @@ jobs:
           cp artifacts/windows/installer/SecureSpeak-Setup-*.exe release/
           cp artifacts/windows/windows/SecureSpeak.exe "release/SecureSpeak-${{ needs.version.outputs.version }}-portable.exe"
           cp artifacts/linux/linux-client/*.deb release/
+          cp artifacts/macos/SecureSpeak-*-macos.zip artifacts/macos/SecureSpeak-*-macos.dmg release/
           (cd artifacts/linux/linux-client && tar czf "../../../release/securespeak-client-${{ needs.version.outputs.version }}-linux.tar.gz" \
             securespeak securespeak-arm64 install-client.sh securespeak.desktop securespeak.png LICENSE)
           (cd artifacts/linux/linux-server && tar czf "../../../release/securespeak-server-${{ needs.version.outputs.version }}-linux.tar.gz" .)
