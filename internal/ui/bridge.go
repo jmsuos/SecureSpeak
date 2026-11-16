@@ -126,7 +126,7 @@ func (b *Bridge) Listen() (string, error) {
 	static := http.FileServer(http.FS(sub))
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Cache-Control", "no-store")
-		w.Header().Set("Content-Security-Policy", "default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; frame-src https://www.youtube.com; connect-src 'self' ws://"+b.host+"; media-src 'self' blob:")
+		w.Header().Set("Content-Security-Policy", "default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; frame-src https://www.youtube.com; connect-src 'self' ws://"+b.host+"; media-src 'self' blob: https://jordysuos.nl")
 		w.Header().Set("X-Frame-Options", "DENY")
 		static.ServeHTTP(w, r)
 	})
