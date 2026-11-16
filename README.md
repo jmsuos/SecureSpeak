@@ -1,6 +1,6 @@
 <p align="center"><img src="assets/securespeak-logo.png" alt="SecureSpeak" width="320"></p>
 
-# SecureSpeak 3.10
+# SecureSpeak 3.11
 
 A TeamSpeak-style voice and text server with end-to-end encryption. There are no
 accounts: you pick a nickname and connect. The server relays encrypted packets
@@ -11,6 +11,13 @@ and can never hear, read or fake anything.
 | Client | Windows 10/11 | `SecureSpeak-Setup-<version>.exe` installer (or the portable exe) |
 | Client | Ubuntu, Linux Mint, Debian (amd64/arm64) | `linux-client/securespeak_3.0.0_amd64.deb`, or the portable binary + `install-client.sh` |
 | Server | Linux (amd64/arm64) | `linux-server/securespeak-server` + `install-server.sh` |
+
+## What's new in 3.11
+
+- **macOS client:** a universal app (Apple silicon and Intel) as a `.dmg`.
+  - **Global push-to-talk** works with keys and mouse side buttons, after allowing Input Monitoring.
+  - **Automatic updates** work the same as on Windows and Linux.
+  - See [macOS client](#macos-client) for the first start.
 
 ## What's new in 3.10
 
@@ -188,6 +195,27 @@ files go to `~/Downloads/SecureSpeak`.
   reads key state directly from the input devices. This lets programs running
   as your user see keyboard input, so only do it on a machine you trust.
 - **Without either:** use the push-to-talk button in the window, or voice activation.
+
+### macOS client
+
+Download **`SecureSpeak-<version>-macos.dmg`** from the
+[Releases](https://github.com/jmsuos/SecureSpeak/releases) page, open it and
+drag **SecureSpeak** to **Applications**.
+- **Supported Macs:** macOS 11 or newer. One app runs natively on both Apple silicon and Intel.
+- **The window:** uses Chrome, Edge, Brave, Vivaldi or Chromium when one is installed. Otherwise it opens as a Safari tab.
+- **Where data lives:** settings and the identity key are in `~/Library/Application Support/SecureSpeak`.
+- **Updating:** SecureSpeak updates itself (*Settings → About SecureSpeak*) when it's in Applications.
+
+**First start:** releases aren't signed with an Apple Developer ID yet, so macOS blocks
+the first start ("can't be opened" / "Apple could not verify"). Open
+*System Settings → Privacy & Security*, scroll down and choose **Open Anyway**
+next to SecureSpeak, then start it again. You only need to do this once. The app
+is signed ad hoc, and every download is checked against the signed `SHA256SUMS`.
+
+**Global push-to-talk on macOS:** set a key (or a mouse side button) in
+*Settings → Audio & voice*. macOS asks you to allow SecureSpeak under
+*System Settings → Privacy & Security → Input Monitoring*. After allowing it,
+push-to-talk also works while another app is in front.
 
 ## Features
 
