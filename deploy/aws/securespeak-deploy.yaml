@@ -14,6 +14,15 @@ Parameters:
     Default: jmsuos/SecureSpeak
     AllowedPattern: "^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$"
     Description: owner/name of the GitHub repository allowed to deploy.
+  GitHubImmutableRepository:
+    Type: String
+    Default: jmsuos@57400332/SecureSpeak@1455385444
+    AllowedPattern: "^[A-Za-z0-9_.-]+@[0-9]+/[A-Za-z0-9_.-]+@[0-9]+$"
+    Description: >-
+      The same repository as owner@OWNER_ID/name@REPOSITORY_ID. GitHub uses
+      this "immutable" format in OIDC tokens for repositories created after
+      15 July 2026 (and for others that opt in). Both IDs are numeric:
+      gh api repos/OWNER/NAME --jq '.owner.id, .id'
   CreateGitHubOIDCProvider:
     Type: String
     Default: "true"
@@ -85,8 +94,13 @@ Resources:
                 token.actions.githubusercontent.com:aud: sts.amazonaws.com
               StringLike:
                 # only runs for release tags (v1.2.3) of this repository;
-                # pull requests and branches cannot assume this role
-                token.actions.githubusercontent.com:sub: !Sub repo:${GitHubRepository}:ref:refs/tags/v*
+                # pull requests and branches cannot assume this role.
+                # Both subject formats: by name, and with GitHub's immutable
+                # owner and repository IDs (exact IDs, no wildcard, so a
+                # look-alike account can't match).
+                token.actions.githubusercontent.com:sub:
+                  - !Sub repo:${GitHubRepository}:ref:refs/tags/v*
+                  - !Sub repo:${GitHubImmutableRepository}:ref:refs/tags/v*
       Policies:
         - PolicyName: SendSecureSpeakUpdate
           PolicyDocument:
