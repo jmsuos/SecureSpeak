@@ -1716,14 +1716,21 @@ function rickRoll(msg) {
     box.classList.add('flip');
     setTimeout(() => {
       const closeBtn = el('button', { class: 'btn primary rr-close', type: 'button', onclick: close }, 'Close');
-      const video = el('video', { class: 'rr-video', src: RICKROLL_VIDEO, autoplay: true, controls: true, playsinline: true, preload: 'auto' });
+      // no-referrer: the app page is http://127.0.0.1:…, which hotlink protection rejects
+      const video = el('video', { class: 'rr-video', referrerpolicy: 'no-referrer', autoplay: true, controls: true, playsinline: true, preload: 'auto' });
+      video.referrerPolicy = 'no-referrer';
+      video.src = RICKROLL_VIDEO;
       // if the browser won't autoplay with sound, start muted and offer sound
       video.addEventListener('loadedmetadata', () => {
         const p = video.play();
         if (p && p.catch) p.catch(() => { video.muted = true; video.play().catch(() => {}); toast('Click the video for sound 🔊'); });
       }, { once: true });
       video.addEventListener('error', () => {
-        video.replaceWith(el('div', { class: 'rr-video rr-missing', text: '🎶 Never gonna let you ban the owner… 🎶' }));
+        const e = video.error, why = e ? (['', 'aborted', 'network error', 'decode error', 'blocked or unsupported'][e.code] || 'error ' + e.code) + (e.message ? ': ' + e.message : '') : 'unknown error';
+        console.warn('rickroll video failed:', why);
+        video.replaceWith(el('div', { class: 'rr-video rr-missing' },
+          el('div', { text: '🎶 Never gonna let you ban the owner… 🎶' }),
+          el('div', { class: 'rr-why', text: '(video ' + why + ')' })));
       }, { once: true });
       box.classList.add('rolled');
       box.replaceChildren(

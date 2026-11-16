@@ -473,4 +473,5 @@ body.stream-doc { margin: 0; background: #07090d; }
 .rr-foot { display: flex; align-items: center; gap: 12px; margin-top: 12px; }
 .rr-close { margin-left: auto; visibility: hidden; }
 .rr-close.show { visibility: visible; }
-.rr-video.rr-missing { display: grid; place-items: center; color: var(--dim); font-size: 18px; }
+.rr-video.rr-missing { display: grid; place-content: center; text-align: center; gap: 6px; color: var(--dim); font-size: 18px; }
+.rr-why { font-size: 12px; opacity: .7; }
