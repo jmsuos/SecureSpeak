@@ -111,9 +111,11 @@ func (s *Server) chanIcon(c *Client, ci proto.ChanIcon) {
 		return
 	}
 	ch.Icon = icon
-	s.broadcastLocked(proto.TChanUpdate, s.channelInfo(ch), 0)
+	// store and clean up first, then tell everyone: once clients see the
+	// change, an icon file that is no longer used is already gone
 	s.saveChannelsLocked()
 	s.gcIconsLocked()
+	s.broadcastLocked(proto.TChanUpdate, s.channelInfo(ch), 0)
 }
 
 func (s *Server) iconGet(c *Client, hash string) {

@@ -83,8 +83,9 @@ func TestChannelIcons(t *testing.T) {
 	// removing the icon deletes the stored file
 	alice.HandleCommand("chan_icon", mustJSON(map[string]any{"id": lobby.ID, "icon": ""}))
 	waitFor(t, "icon removed", func() bool { return chanByName(bob, "Lobby").Icon == "" })
+	// the server deletes the file before it announces the change
 	if _, err := os.Stat(stored); !os.IsNotExist(err) {
-		t.Fatal("unused icon file not cleaned up")
+		t.Fatal("unused icon file still there after the change was announced")
 	}
 
 	// temporary channels cannot have icons
