@@ -298,7 +298,8 @@ type Ping struct {
 }
 
 type Notice struct {
-	Msg string `json:"msg"`
+	Msg  string `json:"msg"`
+	Kind string `json:"kind,omitempty"` // e.g. "rickroll": someone tried to ban the owner
 }
 
 type Nick struct {

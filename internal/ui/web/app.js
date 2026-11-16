@@ -204,6 +204,8 @@ function handle({ t, d }) {
   switch (t) {
     case 'state': onState(d); break;
     case 'update': onUpdate(d); break;
+    case 'rickroll': rickRoll(d.msg); break;
+    case 'notice': if (d.kind === 'rickroll') toast(d.msg, 'ok'); break;
     case 'logs': if (logsView) logsView(d); break;
     case 'watch': W.onMessage(d.from, d.fromNick, d.data); break;
     case 'peer_sound': AE.playFile(d.hash, 'peer'); break;
@@ -814,7 +816,7 @@ function banUser(u) {
     body: [el('div', { class: 'callout warn', text: 'Bans apply to the user\'s IP address. Everyone connected from that address is disconnected.' }),
       el('div', { class: 'field' }, el('label', { text: 'Duration' }), dur),
       el('div', { class: 'field' }, el('label', { text: 'Reason' }), reason)],
-    buttons: [{ label: 'Cancel' }, { label: 'Ban', danger: true, fn: () => act('ban', { id: u.id, minutes: +dur.value, reason: reason.value }) }],
+    buttons: [{ label: 'Cancel' }, { label: 'Ban', danger: true, fn: () => { lastBanTarget = u; return act('ban', { id: u.id, minutes: +dur.value, reason: reason.value }); } }],
   });
 }
 
@@ -1002,6 +1004,8 @@ function userMenu(e, u) {
     canAct(u) && can('client.kick.channel') && { label: 'Kick from channel', icon: 'kick', danger: true, fn: () => kickUser(u, false) },
     canAct(u) && can('client.kick.server') && { label: 'Kick from server', icon: 'kick', danger: true, fn: () => kickUser(u, true) },
     canAct(u) && can('client.ban') && { label: 'Ban…', icon: 'ban', danger: true, fn: () => banUser(u) },
+    !u.me && u.owner && can('client.ban') && 'sep', // 🎣 the owner can't be banned... but it looks like it
+    !u.me && u.owner && can('client.ban') && { label: 'Ban…', icon: 'ban', danger: true, fn: () => banUser(u) },
   ]);
 }
 
@@ -1678,6 +1682,48 @@ function renderSoundsTab(view) {
       const ref = (S.appSounds || {})[k];
       return soundRow(label, ref, 'app:' + k, play(ref, k), 'Default sound');
     })));
+}
+
+// ---------------------------------------------------------------- 🎣 easter egg
+// Trying to ban the server owner is refused by the server, as always. The
+// would-be banner just gets a little show first.
+let lastBanTarget = null;
+let rickrolling = false;
+function rickRoll(msg) {
+  if (rickrolling) return;
+  rickrolling = true;
+  const nick = (lastBanTarget && lastBanTarget.nick) || 'the owner';
+  const steps = ['Contacting server…', 'Checking permissions…', 'Sharpening the ban hammer… 🔨', 'Banning ' + nick + '…'];
+  const fill = el('div', { class: 'rr-fill' });
+  const step = el('div', { class: 'rr-step', text: steps[0] });
+  const pct = el('span', { class: 'rr-pct', text: '0%' });
+  const box = el('div', { class: 'rr-box' },
+    el('div', { class: 'rr-title' }, icon('ban'), el('span', { text: 'Banning ' + nick }), pct),
+    el('div', { class: 'rr-bar' }, fill), step);
+  const ov = el('div', { class: 'rickroll' }, box);
+  let canClose = false;
+  const close = () => { if (!canClose) return; ov.remove(); rickrolling = false; document.removeEventListener('keydown', onKey, true); };
+  const onKey = (e) => { if (e.key === 'Escape') { e.stopPropagation(); e.preventDefault(); close(); } };
+  document.addEventListener('keydown', onKey, true);
+  document.body.append(ov);
+  const marks = [25, 52, 78, 99];
+  marks.forEach((p, i) => setTimeout(() => { fill.style.width = p + '%'; pct.textContent = p + '%'; step.textContent = steps[i]; }, 250 + i * 950));
+  setTimeout(() => {
+    box.classList.add('flip');
+    setTimeout(() => {
+      const closeBtn = el('button', { class: 'btn primary rr-close', type: 'button', onclick: close }, 'Close');
+      const video = el('iframe', {
+        class: 'rr-video', allow: 'autoplay; encrypted-media; fullscreen', referrerpolicy: 'strict-origin-when-cross-origin',
+        src: 'https://www.youtube.com/embed/dQw4w9WgXcQ?autoplay=1&rel=0&playsinline=1&origin=' + encodeURIComponent(location.origin),
+      });
+      box.classList.add('rolled');
+      box.replaceChildren(
+        el('div', { class: 'rr-title big', text: 'Ban failed successfully.' }),
+        video,
+        el('div', { class: 'rr-foot' }, el('span', { class: 'hint', style: 'margin:0', text: msg || 'Nice try. The server owner can’t be banned.' }), closeBtn));
+      setTimeout(() => { canClose = true; closeBtn.classList.add('show'); }, 5000);
+    }, 300);
+  }, 250 + 4 * 950 + 1200);
 }
 
 // ---------------------------------------------------------------- updates & quitting

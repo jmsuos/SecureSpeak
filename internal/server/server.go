@@ -1320,6 +1320,18 @@ func (s *Server) handleAdmin(c *Client, m proto.Message) bool {
 		}
 		return t
 	}
+	// Easter egg: banning the owner is refused as always, but the would-be
+	// banner gets Rick Rolled, and the owner hears about it.
+	if m.T == proto.TBan {
+		if b, ok := decode[proto.Ban](m); ok {
+			if t := s.clients[b.ID]; t != nil && t != c && t.Owner {
+				c.sendErr("rickroll", "Nice try. The server owner can't be banned.")
+				t.send(proto.TNotice, proto.Notice{Kind: "rickroll", Msg: fmt.Sprintf("🎣 %s just tried to ban you and got Rick Rolled.", c.Nick)})
+				s.logf("client %d %q tried to ban the owner %q (and got Rick Rolled)", c.ID, c.Nick, t.Nick)
+				return true
+			}
+		}
+	}
 	switch m.T {
 	case proto.TKick:
 		k, ok := decode[proto.Kick](m)

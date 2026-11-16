@@ -286,3 +286,41 @@ func TestClientVersionShown(t *testing.T) {
 		}
 	}
 }
+
+// 🎣 Trying to ban the owner: still refused, but the would-be banner gets
+// Rick Rolled and the owner hears about it. Without ban rights it's just
+// the normal refusal.
+func TestBanOwnerRickRoll(t *testing.T) {
+	_, host, port := startServer(t)
+	alice, aliceRec := newTestClient(t, host, port, "Alice")
+	bob, bobRec := newTestClient(t, host, port, "Bob")
+	carol, carolRec := newTestClient(t, host, port, "Carol")
+	alice.HandleCommand("token_use", mustJSON(map[string]any{"token": ownerToken}))
+	waitFor(t, "alice owner", func() bool { return alice.State().Owner })
+	aliceID, bobID := alice.State().MyID, bob.State().MyID
+	alice.HandleCommand("client_roles", mustJSON(map[string]any{"id": bobID, "roles": []uint32{3}})) // Moderator (has ban rights)
+	waitFor(t, "bob moderator", func() bool { return has(bob.State().Clients[indexOfMe(bob)].Roles, 3) })
+
+	bob.HandleCommand("ban", mustJSON(map[string]any{"id": aliceID, "minutes": 60, "reason": "lol"}))
+	waitFor(t, "bob gets rick rolled", func() bool { return len(bobRec.all("rickroll")) == 1 })
+	waitFor(t, "alice is told", func() bool {
+		return aliceRec.find("chat", func(m map[string]any) bool {
+			s, _ := m["text"].(string)
+			return s == "🎣 Bob just tried to ban you and got Rick Rolled."
+		})
+	})
+	if len(bobRec.all("error")) != 0 {
+		t.Fatal("rickroll also produced a normal error")
+	}
+	time.Sleep(200 * time.Millisecond)
+	if !alice.State().Connected || clientByNick(bob, "Alice").ID == 0 {
+		t.Fatal("the owner was banned")
+	}
+
+	// without ban rights: the normal refusal, no show
+	carol.HandleCommand("ban", mustJSON(map[string]any{"id": aliceID, "minutes": 60}))
+	waitFor(t, "carol refused", hasErr(carolRec, "permission", "permission"))
+	if len(carolRec.all("rickroll")) != 0 {
+		t.Fatal("guest without ban rights got the easter egg")
+	}
+}
