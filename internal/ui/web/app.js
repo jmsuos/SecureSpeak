@@ -1687,6 +1687,10 @@ function renderSoundsTab(view) {
 // ---------------------------------------------------------------- 🎣 easter egg
 // Trying to ban the server owner is refused by the server, as always. The
 // would-be banner just gets a little show first.
+// The video for the 🎣 easter egg, hosted by the project owner (many music
+// videos refuse to play in embedded players). Loaded only when someone
+// falls for it. Also allowed in the app's media-src (bridge.go).
+const RICKROLL_VIDEO = 'https://jordysuos.nl/src/egg.mp4';
 let lastBanTarget = null;
 let rickrolling = false;
 function rickRoll(msg) {
@@ -1712,10 +1716,15 @@ function rickRoll(msg) {
     box.classList.add('flip');
     setTimeout(() => {
       const closeBtn = el('button', { class: 'btn primary rr-close', type: 'button', onclick: close }, 'Close');
-      const video = el('iframe', {
-        class: 'rr-video', allow: 'autoplay; encrypted-media; fullscreen', referrerpolicy: 'strict-origin-when-cross-origin',
-        src: 'https://www.youtube.com/embed/dQw4w9WgXcQ?autoplay=1&rel=0&playsinline=1&origin=' + encodeURIComponent(location.origin),
-      });
+      const video = el('video', { class: 'rr-video', src: RICKROLL_VIDEO, autoplay: true, controls: true, playsinline: true, preload: 'auto' });
+      // if the browser won't autoplay with sound, start muted and offer sound
+      video.addEventListener('loadedmetadata', () => {
+        const p = video.play();
+        if (p && p.catch) p.catch(() => { video.muted = true; video.play().catch(() => {}); toast('Click the video for sound 🔊'); });
+      }, { once: true });
+      video.addEventListener('error', () => {
+        video.replaceWith(el('div', { class: 'rr-video rr-missing', text: '🎶 Never gonna let you ban the owner… 🎶' }));
+      }, { once: true });
       box.classList.add('rolled');
       box.replaceChildren(
         el('div', { class: 'rr-title big', text: 'Ban failed successfully.' }),
