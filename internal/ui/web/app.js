@@ -1690,7 +1690,9 @@ function renderSoundsTab(view) {
 // The video for the 🎣 easter egg, hosted by the project owner (many music
 // videos refuse to play in embedded players). Loaded only when someone
 // falls for it. Also allowed in the app's media-src (bridge.go).
-const RICKROLL_VIDEO = 'https://jordysuos.nl/src/egg.mp4';
+// Tried in order: WebM (VP9/Opus) plays in every Chromium, including Linux
+// builds without H.264/AAC; the MP4 is the fallback.
+const RICKROLL_VIDEOS = ['https://jordysuos.nl/src/egg.webm', 'https://jordysuos.nl/src/egg.mp4'];
 let lastBanTarget = null;
 let rickrolling = false;
 function rickRoll(msg) {
@@ -1719,19 +1721,27 @@ function rickRoll(msg) {
       // no-referrer: the app page is http://127.0.0.1:…, which hotlink protection rejects
       const video = el('video', { class: 'rr-video', referrerpolicy: 'no-referrer', autoplay: true, controls: true, playsinline: true, preload: 'auto' });
       video.referrerPolicy = 'no-referrer';
-      video.src = RICKROLL_VIDEO;
+      let srcIdx = 0;
+      video.src = RICKROLL_VIDEOS[0];
       // if the browser won't autoplay with sound, start muted and offer sound
       video.addEventListener('loadedmetadata', () => {
         const p = video.play();
         if (p && p.catch) p.catch(() => { video.muted = true; video.play().catch(() => {}); toast('Click the video for sound 🔊'); });
       }, { once: true });
-      video.addEventListener('error', () => {
+      const onVideoError = () => {
         const e = video.error, why = e ? (['', 'aborted', 'network error', 'decode error', 'blocked or unsupported'][e.code] || 'error ' + e.code) + (e.message ? ': ' + e.message : '') : 'unknown error';
-        console.warn('rickroll video failed:', why);
+        console.warn('rickroll video failed:', video.src, why);
+        if (++srcIdx < RICKROLL_VIDEOS.length) {
+          video.src = RICKROLL_VIDEOS[srcIdx];
+          video.addEventListener('loadedmetadata', () => video.play().catch(() => { video.muted = true; video.play().catch(() => {}); }), { once: true });
+          return;
+        }
+        video.removeEventListener('error', onVideoError);
         video.replaceWith(el('div', { class: 'rr-video rr-missing' },
           el('div', { text: '🎶 Never gonna let you ban the owner… 🎶' }),
           el('div', { class: 'rr-why', text: '(video ' + why + ')' })));
-      }, { once: true });
+      };
+      video.addEventListener('error', onVideoError);
       box.classList.add('rolled');
       box.replaceChildren(
         el('div', { class: 'rr-title big', text: 'Ban failed successfully.' }),
